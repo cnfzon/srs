@@ -9,7 +9,8 @@ import { EmergencyStop } from '@/components/remote-control/EmergencyStop';
 import { TelemetryOverlay } from '@/components/remote-control/TelemetryOverlay';
 
 export default function RemoteControlPage() {
-  const { telemetry, commands, updateCommands } = useRemoteControl();
+  // 修正：解構出 stream 物件
+  const { telemetry, stream, commands, updateCommands } = useRemoteControl();
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -20,14 +21,20 @@ export default function RemoteControlPage() {
         </div>
         <div className="bg-slate-800 px-4 py-2 rounded-lg border border-slate-700">
           <span className="text-xs text-slate-500 block uppercase">System Latency</span>
-          <span className="text-green-400 font-mono">24ms</span>
+          {/* 修正：根據連線狀態顯示延遲顏色 */}
+          <span className={`${stream ? 'text-green-400' : 'text-slate-500'} font-mono`}>
+            {stream ? '24ms' : 'OFFLINE'}
+          </span>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 左側：影像與遙測數據 */}
         <div className="lg:col-span-2 space-y-6">
-          <LiveCamera isOffline={!telemetry} />
+          {/* 修正：使用 relative 包覆以正確疊加 YOLO 紅點 */}
+          <div className="relative">
+            <LiveCamera stream={stream} isOffline={!stream} />
+            <TelemetryOverlay telemetry={telemetry} />
+          </div>
           
           <div className="grid grid-cols-3 gap-4">
             <StatCard label="目前狀態" value={telemetry?.status || 'IDLE'} color="text-blue-400" />
@@ -36,7 +43,6 @@ export default function RemoteControlPage() {
           </div>
         </div>
 
-        {/* 右側：控制面板 */}
         <div className="space-y-6">
           <CommandPanel commands={commands} onUpdate={updateCommands} />
           <EmergencyStop 
