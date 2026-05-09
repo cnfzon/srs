@@ -1,15 +1,13 @@
 // src/hooks/useRemoteControl.ts
 import { useState, useEffect, useRef } from 'react';
 import { rtdb, db } from '@/lib/firebase';
-import { ref, onValue, set } from 'firebase/database';
+import { ref, onValue, set, remove } from 'firebase/database';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { TelemetryData, ControlCommands, RawSensorData } from '@/types/remote-control';
 
 export const useRemoteControl = () => {
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
-  
-  // 修正：必須提供初始值，否則 CommandPanel 的 toFixed(2) 會崩潰
   const [commands, setCommands] = useState<ControlCommands>({
     targetX: 320,
     targetY: 240,
@@ -19,30 +17,79 @@ export const useRemoteControl = () => {
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
 
-  // WebRTC 邏輯 (維持不變...)
   useEffect(() => {
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    pc.ontrack = (event) => setStream(event.streams[0]);
+    // 1. 初始化 PeerConnection，建議加入多個 STUN 伺服器增加穿透率
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+      ]
+    });
+
+    // 2. 監聽連線狀態（除錯用，可在 Vercel F12 查看）
+    pc.oniceconnectionstatechange = () => {
+      console.log(`⚡ ICE 連線狀態: ${pc.iceConnectionState}`);
+    };
+
+    pc.onicegatheringstatechange = () => {
+      console.log(`🔍 ICE 收集狀態: ${pc.iceGatheringState}`);
+    };
+
+    pc.ontrack = (event) => {
+      console.log("🎬 接收到遠端串流");
+      setStream(event.streams[0]);
+    };
+
     pcRef.current = pc;
 
+    // 3. 監聽 Python 端傳回的 Answer
     const answerRef = ref(rtdb, 'webrtc_signaling/answer');
-    onValue(answerRef, async (snapshot) => {
+    const unsubscribeAnswer = onValue(answerRef, async (snapshot) => {
       const answer = snapshot.val();
       if (answer && pc.signalingState === "have-local-offer") {
+        console.log("✅ 收到 Answer，建立連線...");
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
       }
     });
 
+    // 4. 發起連線邏輯：必須等待 ICE 收集完成再發送 SDP
     const initiateCall = async () => {
       const offer = await pc.createOffer({ offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
-      await set(ref(rtdb, 'webrtc_signaling/offer'), { type: offer.type, sdp: offer.sdp });
+
+      // 監聽 ICE 收集狀態，直到 'complete' 才將 Offer 寫入 Firebase
+      // 這樣發出的 SDP 才會包含你的公網 IP 候選者
+      const checkIceGathering = () => {
+        if (pc.iceGatheringState === 'complete') {
+          console.log("📡 ICE 收集完成，發送 Offer 至 Firebase");
+          set(ref(rtdb, 'webrtc_signaling/offer'), {
+            type: pc.localDescription?.type,
+            sdp: pc.localDescription?.sdp
+          });
+          pc.removeEventListener('icegatheringstatechange', checkIceGathering);
+        }
+      };
+
+      if (pc.iceGatheringState === 'complete') {
+        checkIceGathering();
+      } else {
+        pc.addEventListener('icegatheringstatechange', checkIceGathering);
+      }
     };
+
     initiateCall();
-    return () => pc.close();
+
+    return () => {
+      unsubscribeAnswer();
+      // 離開頁面時清理連線與 Firebase 節點，避免下次連線讀到舊數據
+      remove(ref(rtdb, 'webrtc_signaling'));
+      pc.close();
+      pcRef.current = null;
+    };
   }, []);
 
-  // 遙測數據監聽 (維持不變...)
+  // 遙測數據監聽 (維持不變)
   useEffect(() => {
     const bridgeRef = ref(rtdb, 'command_bridge');
     return onValue(bridgeRef, async (snapshot) => {
@@ -62,10 +109,8 @@ export const useRemoteControl = () => {
     });
   }, []);
 
-  // 修正：定義接收參數的函式，解決「應有 0 個引數」的問題
   const updateCommands = (newCmd: Partial<ControlCommands>) => {
     setCommands(prev => ({ ...prev, ...newCmd }));
-    // 如果需要寫回 Firebase 可在此處加上 set(ref(rtdb, ...), ...)
   };
 
   return { telemetry, stream, commands, updateCommands };
