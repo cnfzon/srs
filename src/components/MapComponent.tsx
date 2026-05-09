@@ -6,8 +6,9 @@ import { MapContainer, TileLayer, Marker, Popup, useMapEvents, useMap } from "re
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// 修正：使用更符合環保主題的綠色標記（可自定義 Icon）
 const MARKER_ICON = new L.Icon({
-  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png",
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
   iconSize: [25, 41],
   iconAnchor: [12, 41],
@@ -25,7 +26,7 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
   const [formData, setFormData] = useState({ 
     name: "", 
     description: "", 
-    status: "充足" 
+    status: "STABLE" 
   });
 
   useMapEvents({
@@ -35,7 +36,6 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (clickedPos) {
-      // 發送結構化的資料給 page.tsx
       onAddStation({
         name: formData.name,
         description: formData.description,
@@ -44,7 +44,7 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
         lng: clickedPos.lng,
       });
       setClickedPos(null);
-      setFormData({ name: "", description: "", status: "充足" });
+      setFormData({ name: "", description: "", status: "STABLE" });
     }
   };
 
@@ -54,16 +54,16 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
       eventHandlers={{ remove: () => setClickedPos(null) }}
     >
       <div className="p-3 min-w-[220px] bg-slate-900 text-white rounded-lg">
-        <h3 className="font-bold text-blue-400 mb-3 text-sm flex items-center gap-2">
-          📍 新增部署站點
+        <h3 className="font-bold text-emerald-400 mb-3 text-sm flex items-center gap-2">
+          ♻️ 新增循環據點
         </h3>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <div>
-            <label className="text-[10px] text-slate-400 uppercase font-bold">站點名稱</label>
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">站點名稱 (如: 台北車站 A 站)</label>
             <input
               type="text"
-              placeholder="請輸入站點名稱..."
-              className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="輸入據點名稱..."
+              className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               required
@@ -71,33 +71,33 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
           </div>
           
           <div>
-            <label className="text-[10px] text-slate-400 uppercase font-bold">站點描述</label>
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">站點位置備註</label>
             <textarea
-              placeholder="請輸入備註..."
-              className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white h-20 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="說明具體位置 (如: 東二門入口旁)..."
+              className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white h-16 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             />
           </div>
 
           <div>
-            <label className="text-[10px] text-slate-400 uppercase font-bold">初始狀態</label>
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">初始容器狀態</label>
             <select 
               className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white focus:outline-none"
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
             >
-              <option value="充足">充足 (Stable)</option>
-              <option value="吃緊">吃緊 (Warning)</option>
-              <option value="短缺">短缺 (Critical)</option>
+              <option value="STABLE">潔淨儲備充足 (Stable)</option>
+              <option value="WARNING">回收桶接近全滿 (Warning)</option>
+              <option value="CRITICAL">潔淨容器耗盡 (Critical)</option>
             </select>
           </div>
 
           <button
             type="submit"
-            className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded text-xs transition-all mt-2 shadow-lg shadow-blue-500/20"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded text-xs transition-all mt-2 shadow-lg shadow-emerald-500/20"
           >
-            確認部署到此座標
+            確認部署據點
           </button>
         </form>
       </div>
@@ -133,7 +133,12 @@ export default function MapComponent({ stations, selectedId, onAddStation, onMar
             icon={MARKER_ICON}
             eventHandlers={{ click: () => onMarkerClick(station.id) }}
           >
-            <Popup><div className="text-sm font-bold text-slate-800">{station.name}</div></Popup>
+            <Popup>
+              <div className="text-sm font-bold text-slate-800">
+                {station.name}
+                <div className="text-[10px] text-slate-500 font-normal mt-1">{station.description}</div>
+              </div>
+            </Popup>
           </Marker>
         ))}
       </MapContainer>
