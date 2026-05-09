@@ -1,8 +1,7 @@
-// src/hooks/useInventory.ts
-import { useState, useEffect } from 'react';
-import { collection, onSnapshot, QuerySnapshot, DocumentData } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { InventoryItem, InventoryStatus } from '@/types/inventory';
+import { useState, useEffect } from "react";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { InventoryItem } from "@/types/inventory";
 
 export function useInventory() {
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -11,33 +10,35 @@ export function useInventory() {
 
   useEffect(() => {
     // 監聽 stations 集合
-    const unsubscribe = onSnapshot(collection(db, 'stations'), (snapshot: QuerySnapshot<DocumentData>) => {
-      const allItems: InventoryItem[] = [];
-      
-      snapshot.docs.forEach(doc => {
-        const data = doc.data();
-        const stationInventory = data.inventory || [];
-        
-        stationInventory.forEach((inv: any) => {
-          // 根據數量判斷狀態 (可依需求調整邏輯)
-          let status: InventoryStatus = "STABLE";
-          if (inv.quantity < 20) status = "CRITICAL";
-          else if (inv.quantity < 50) status = "WARNING";
+    const q = query(collection(db, "stations"), orderBy("updatedAt", "desc"));
 
-          allItems.push({
-            id: `${doc.id}-${inv.name}`, // 組合 ID 確保唯一性
-            name: inv.name,
-            quantity: inv.quantity,
-            unit: inv.unit,
-            category: inv.category || 'general',
-            status: status,
-            updatedAt: Date.now()
-          });
-        });
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const inventoryData = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        
+        // 狀態相容性處理：支援中文與英文
+        let mappedStatus: "STABLE" | "WARNING" | "CRITICAL" = "STABLE";
+        if (data.status === "充足" || data.status === "STABLE") mappedStatus = "STABLE";
+        else if (data.status === "警戒" || data.status === "WARNING") mappedStatus = "WARNING";
+        else if (data.status === "短缺" || data.status === "CRITICAL") mappedStatus = "CRITICAL";
+
+        return {
+          id: doc.id,
+          name: data.name || "未命名站點",
+          // 核心修正：優先取加總後的 quantity
+          quantity: data.quantity ?? 0, 
+          category: data.category || "資源站點",
+          status: mappedStatus,
+          inventory: data.inventory || [],
+          lastUpdated: data.updatedAt?.toDate?.()?.getTime() || Date.now(),
+        } as InventoryItem;
       });
 
-      setItems(allItems);
+      setItems(inventoryData);
       setLastUpdated(Date.now());
+      setLoading(false);
+    }, (error) => {
+      console.error("Firestore 監聽失敗:", error);
       setLoading(false);
     });
 

@@ -1,169 +1,320 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
-  ArrowUpRight,
   Download,
-  ShieldCheck,
-  Sparkles,
   LayoutDashboard,
+  Plus,
+  X,
+  Save,
+  Trash2,
+  PackageSearch,
+  Sparkles,
+  MinusCircle,
+  PlusCircle,
+  PackageOpen,
 } from "lucide-react";
 import { InventoryCard } from "@/components/inventory/InventoryCard";
 import { StatPanel } from "@/components/inventory/StatPanel";
 import { useInventory } from "@/hooks/useInventory";
+import { InventoryItem } from "@/types/inventory";
+import { db } from "@/lib/firebase";
+import { 
+  collection, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  serverTimestamp 
+} from "firebase/firestore";
 
 export default function InventoryDashboardPage() {
   const { items, loading, lastUpdated } = useInventory();
+  
+  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
+  
+  // formData 初始化包含單位
+  const [formData, setFormData] = useState({ 
+    name: "", 
+    category: "醫療物資",
+    inventory: [] as { name: string; quantity: number; unit: string }[] 
+  });
+
+  // 自動加總邏輯：計算所有子項目的數量總和
+  const totalQuantity = useMemo(() => {
+    return formData.inventory.reduce((sum, sub) => sum + (Number(sub.quantity) || 0), 0);
+  }, [formData.inventory]);
 
   const stats = useMemo(() => {
-    const stable = items.filter((item) => item.status === "STABLE").length;
-    const warning = items.filter((item) => item.status === "WARNING").length;
-    const critical = items.filter((item) => item.status === "CRITICAL").length;
+    const stable = items.filter((i) => i.status === "STABLE").length;
+    const warning = items.filter((i) => i.status === "WARNING").length;
+    const critical = items.filter((i) => i.status === "CRITICAL").length;
     const lastSyncMs = lastUpdated ? Math.max(0, Date.now() - lastUpdated) : null;
     return { stable, warning, critical, total: items.length, lastSyncMs };
   }, [items, lastUpdated]);
 
-  return (
-    /** * 核心修正：
-     * 1. 確保使用 min-h-screen 而非 h-screen
-     * 2. 增加 overflow-y-auto 確保容器本身可滾動
-     * 3. 確保 bg 固定或隨內容延伸
-     */
-    <div className="min-h-screen w-full bg-[#020617] overflow-y-auto overflow-x-hidden p-4 md:p-8 space-y-8">
+  const closeModal = () => {
+    setSelectedItem(null);
+    setIsAdding(false);
+    setFormData({ name: "", category: "醫療物資", inventory: [] });
+  };
+
+  // 子項目更新邏輯（支援單位）
+  const updateSubItem = (index: number, field: "name" | "quantity" | "unit", value: any) => {
+    const newInventory = [...formData.inventory];
+    newInventory[index] = { ...newInventory[index], [field]: value };
+    setFormData({ ...formData, inventory: newInventory });
+  };
+
+  const removeSubItem = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      inventory: prev.inventory.filter((_, i) => i !== index)
+    }));
+  };
+
+  // 處理更新或新增至 Firestore
+  const handleSync = async () => {
+    try {
+      // 根據總數量自動決定狀態
+      const dbStatus = totalQuantity > 50 ? "STABLE" : (totalQuantity > 0 ? "WARNING" : "CRITICAL");
       
-      {/* Header Area */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3 py-1 text-[10px] font-medium uppercase tracking-widest text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
-            System Live Sync: Active
-          </div>
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white flex items-center gap-3">
-            <LayoutDashboard className="h-8 w-8 text-blue-500" />
-            物資分配指揮中心
+      const payload = {
+        name: formData.name,
+        category: formData.category,
+        inventory: formData.inventory, // 直接發送整個過濾（刪除）後的陣列，徹底同步
+        quantity: totalQuantity, 
+        status: dbStatus,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (isAdding) {
+        await addDoc(collection(db, "stations"), { ...payload, createdAt: serverTimestamp() });
+      } else if (selectedItem) {
+        const docRef = doc(db, "stations", selectedItem.id);
+        await updateDoc(docRef, payload);
+      }
+      closeModal();
+    } catch (e) {
+      console.error("同步失敗:", e);
+    }
+  };
+
+  const handleDeleteNode = async (id: string) => {
+    if (confirm("確定要撤除此資源站點嗎？")) {
+      await deleteDoc(doc(db, "stations", id));
+      closeModal();
+    }
+  };
+
+  return (
+    <div className="min-h-screen w-full bg-[#020617] overflow-y-auto p-4 md:p-12 space-y-12 text-slate-200">
+      
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div className="space-y-3">
+          <h1 className="text-4xl font-black text-white flex items-center gap-4 tracking-tighter">
+            <LayoutDashboard className="h-10 w-10 text-blue-500" />
+            即時動態庫存快照
           </h1>
-          <p className="text-slate-400 max-w-xl text-sm md:text-base">
-            當前正在監控全域資源調度。此界面由數位孿生系統驅動，即時同步來自影像辨識端與前端的數據。
-          </p>
+          <p className="text-slate-400">數位孿生同步系統 - 子項目單位與數量即時同步</p>
         </div>
-        
-        <div className="flex flex-wrap items-center gap-3">
-          <button className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/5 px-5 py-2.5 text-sm font-bold text-slate-300 hover:bg-white/10 transition-all">
-            <Download className="h-4 w-4" /> 報表導出
-          </button>
-          <button className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 shadow-lg shadow-blue-900/20 transition-all">
-            <ShieldCheck className="h-4 w-4" /> 安全查核
-          </button>
-        </div>
+        <button onClick={() => setIsAdding(true)} className="bg-blue-600 hover:bg-blue-500 px-6 py-3.5 rounded-2xl font-bold flex items-center gap-2 transition-all shadow-xl shadow-blue-900/40">
+          <Plus className="h-5 w-5" /> 新增物資節點
+        </button>
       </div>
 
-      {/* Main Content Grid - 修復高度塌陷導致的跑版 */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 auto-rows-min">
-        
-        {/* Left Side: Monitor */}
-        <section className="xl:col-span-8 group relative rounded-[2.5rem] border border-white/10 bg-slate-900/40 p-1 backdrop-blur-3xl transition-all hover:border-white/20 overflow-hidden">
-          <div className="m-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Real-time Topographic</span>
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-amber-400" /> 資源站點拓樸監控
-                </h2>
+      {/* 數據看板 */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+        <section className="xl:col-span-8 rounded-[3rem] border border-white/10 bg-slate-900/40 p-8 backdrop-blur-3xl shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-10">
+            <Sparkles className="h-32 w-32 text-blue-500" />
+          </div>
+          <div className="relative z-10">
+            <h2 className="text-2xl font-black text-white">資源站點分佈監控</h2>
+            <div className="grid grid-cols-3 gap-6 mt-8">
+              <div className="bg-emerald-500/5 border border-emerald-500/20 p-8 rounded-[2rem] text-center">
+                <p className="text-[10px] font-bold text-emerald-500 uppercase mb-2">穩定運行</p>
+                <p className="text-5xl font-black text-white">{stats.stable}</p>
               </div>
-              <div className="flex -space-x-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-8 w-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] text-slate-400 font-bold">
-                    OP{i}
-                  </div>
-                ))}
+              <div className="bg-amber-500/5 border border-amber-500/20 p-8 rounded-[2rem] text-center">
+                <p className="text-[10px] font-bold text-amber-500 uppercase mb-2">庫存警戒</p>
+                <p className="text-5xl font-black text-white">{stats.warning}</p>
               </div>
-            </div>
-
-            {/* 可視化數據主體 - 修正寬度與高度比例 */}
-            <div className="relative min-h-[300px] lg:min-h-[400px] w-full rounded-[2rem] border border-white/5 bg-[#0a0f1e] overflow-hidden shadow-inner">
-              <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
-              
-              <div className="relative z-10 p-6 md:p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="flex flex-col justify-between rounded-3xl border border-white/5 bg-white/5 p-6 backdrop-blur-md min-h-[140px]">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Normal Nodes</span>
-                  <div className="mt-4">
-                    <span className="text-5xl font-black text-white leading-none">{stats.stable}</span>
-                    <p className="text-emerald-400 text-xs mt-3 flex items-center gap-1 font-bold">↑ 運作正常</p>
-                  </div>
-                </div>
-                <div className="flex flex-col justify-between rounded-3xl border border-amber-500/20 bg-amber-500/5 p-6 backdrop-blur-md min-h-[140px]">
-                  <span className="text-xs font-bold text-amber-500/50 uppercase tracking-widest">Warnings</span>
-                  <div className="mt-4">
-                    <span className="text-5xl font-black text-amber-400 leading-none">{stats.warning}</span>
-                    <p className="text-amber-500/70 text-xs mt-3 font-bold">需注意庫存</p>
-                  </div>
-                </div>
-                <div className="flex flex-col justify-between rounded-3xl border border-red-500/20 bg-red-500/5 p-6 backdrop-blur-md min-h-[140px]">
-                  <span className="text-xs font-bold text-red-500/50 uppercase tracking-widest">Critical</span>
-                  <div className="mt-4">
-                    <span className="text-5xl font-black text-red-400 leading-none">{stats.critical}</span>
-                    <p className="text-red-400 text-xs mt-3 font-bold">物資嚴重短缺</p>
-                  </div>
-                </div>
+              <div className="bg-red-500/5 border border-red-500/20 p-8 rounded-[2rem] text-center">
+                <p className="text-[10px] font-bold text-red-500 uppercase mb-2">嚴重短缺</p>
+                <p className="text-5xl font-black text-white">{stats.critical}</p>
               </div>
             </div>
           </div>
         </section>
-
-        {/* Right Side: Stats Panel */}
-        <aside className="xl:col-span-4 flex flex-col h-full">
-          <div className="flex-1 rounded-[2.5rem] border border-white/10 bg-slate-900/40 p-6 backdrop-blur-3xl transition-all hover:border-white/20 min-h-[400px]">
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-lg font-bold text-white tracking-tight">系統健康度分析</h3>
-              <div className="h-10 w-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-                <ArrowUpRight className="h-5 w-5" />
-              </div>
-            </div>
-            
-            <StatPanel
-              total={stats.total}
-              stable={stats.stable}
-              warning={stats.warning}
-              critical={stats.critical}
-              lastSyncMs={stats.lastSyncMs}
-            />
-          </div>
+        <aside className="xl:col-span-4">
+          <StatPanel {...stats} />
         </aside>
       </div>
 
-      {/* Inventory Snapshot Section - 即時動態庫存快照 */}
-      <div className="space-y-6 pb-20">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-2 gap-4">
-          <div className="flex items-center gap-4">
-            <h3 className="text-2xl font-black text-white tracking-tight">即時動態庫存快照</h3>
-            <span className="rounded-lg bg-blue-500/10 px-3 py-1 text-xs font-bold text-blue-400 border border-blue-500/20 whitespace-nowrap">
-              Total: {stats.total}
-            </span>
-          </div>
-          <div className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
-            Auto-refreshing every 3.0s
-          </div>
-        </div>
-
-        {/* 捲動內容容器 */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6">
-          {loading ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-64 animate-pulse rounded-[2rem] border border-white/5 bg-white/5 shadow-inner" />
-            ))
-          ) : items.length > 0 ? (
-            items.map((item) => (
-              <div key={item.id} className="transition-transform duration-300 hover:scale-[1.02]">
-                <InventoryCard item={item} />
-              </div>
-            ))
-          ) : (
-            <div className="col-span-full py-20 text-center rounded-[2rem] border border-dashed border-white/10 bg-white/5">
-              <p className="text-slate-500 font-medium italic">目前無活躍資源站點數據</p>
-            </div>
-          )}
-        </div>
+      {/* 物資卡片列表 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 pb-32">
+        {loading ? (
+          <p className="text-slate-500 font-bold animate-pulse">正在同步資料庫數據...</p>
+        ) : (
+          items.map((item) => (
+            <InventoryCard 
+              key={item.id} 
+              item={item} 
+              onEdit={(target) => {
+                setSelectedItem(target);
+                setFormData({ 
+                  name: target.name, 
+                  category: target.category || "醫療物資",
+                  inventory: target.inventory || []
+                });
+              }}
+            />
+          ))
+        )}
       </div>
+
+      {/* 修正後的懸浮管理視窗 (Floating Sidebar) */}
+      {(selectedItem || isAdding) && (
+        <div className="fixed inset-0 z-[100] flex justify-end p-6 pointer-events-none">
+          <div className="absolute inset-0 pointer-events-auto" onClick={closeModal} />
+          
+          <div className="relative w-full max-w-lg pointer-events-auto overflow-hidden rounded-[3.5rem] border border-white/10 bg-[#0b1220]/95 backdrop-blur-3xl shadow-2xl animate-in slide-in-from-right duration-300">
+            <div className="p-10 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="bg-blue-600/20 p-3 rounded-2xl border border-blue-500/30 text-blue-400">
+                    <PackageSearch className="h-6 w-6" />
+                  </div>
+                  <h2 className="text-2xl font-black text-white">站點物資管理</h2>
+                </div>
+                <button onClick={closeModal} className="p-2 hover:bg-white/10 text-slate-400 rounded-xl transition-colors">
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 space-y-8 custom-scrollbar">
+                {/* 基礎站點資訊 */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">資源站名稱 (LABEL)</label>
+                    <input 
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      className="w-full rounded-2xl bg-white/5 border border-white/10 p-4 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">當前總庫存 (加總結果)</label>
+                      <div className="w-full bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl text-2xl font-black text-blue-400 text-center">
+                        {totalQuantity}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">主類別</label>
+                      <select 
+                        value={formData.category}
+                        onChange={(e) => setFormData({...formData, category: e.target.value})}
+                        className="w-full rounded-2xl bg-slate-900 border border-white/10 p-4 text-white outline-none"
+                      >
+                        <option className="bg-[#0b1220]">醫療物資</option>
+                        <option className="bg-[#0b1220]">民生用水</option>
+                        <option className="bg-[#0b1220]">糧食儲備</option>
+                        <option className="bg-[#0b1220]">通訊設備</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 子項目清單 - 加入單位元件 */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                    <label className="text-[11px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                      <PackageOpen className="h-4 w-4" /> 內容物細項清單
+                    </label>
+                    <button 
+                      onClick={() => setFormData(p => ({...p, inventory: [...p.inventory, {name: "新物資", quantity: 0, unit: "個"}]}))}
+                      className="text-[10px] font-bold bg-blue-600 px-4 py-2 rounded-full text-white hover:bg-blue-500 shadow-lg shadow-blue-900/20 transition-all"
+                    >
+                      + 新增品項
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    {formData.inventory.map((subItem, index) => (
+                      <div key={index} className="group flex flex-col gap-3 p-5 rounded-[2rem] bg-white/5 border border-white/5 hover:border-blue-500/30 transition-all">
+                        <div className="flex items-center justify-between">
+                          <input 
+                            value={subItem.name}
+                            onChange={(e) => updateSubItem(index, "name", e.target.value)}
+                            className="bg-transparent border-none outline-none text-sm font-bold text-slate-200 placeholder:text-slate-600"
+                            placeholder="品項名稱 (如: 礦泉水)"
+                          />
+                          <button onClick={() => removeSubItem(index)} className="p-2 text-slate-600 hover:text-red-500 transition-colors">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                          {/* 數量控制 */}
+                          <div className="flex items-center gap-2 bg-black/40 rounded-xl px-3 py-1.5 border border-white/10">
+                            <button onClick={() => updateSubItem(index, "quantity", Math.max(0, subItem.quantity - 1))}>
+                              <MinusCircle className="h-4 w-4 text-slate-500 hover:text-red-400" />
+                            </button>
+                            <input 
+                              type="number"
+                              value={subItem.quantity}
+                              onChange={(e) => updateSubItem(index, "quantity", parseInt(e.target.value) || 0)}
+                              className="w-10 bg-transparent text-center text-xs font-mono font-bold text-blue-400 outline-none"
+                            />
+                            <button onClick={() => updateSubItem(index, "quantity", subItem.quantity + 1)}>
+                              <PlusCircle className="h-4 w-4 text-slate-500 hover:text-emerald-400" />
+                            </button>
+                          </div>
+                          
+                          {/* 單位輸入 */}
+                          <div className="flex-1 flex items-center gap-2 bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                            <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">單位:</span>
+                            <input 
+                              value={subItem.unit || ""}
+                              onChange={(e) => updateSubItem(index, "unit", e.target.value)}
+                              className="flex-1 bg-transparent text-xs font-bold text-slate-300 outline-none"
+                              placeholder="箱 / 瓶 / 個"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {formData.inventory.length === 0 && (
+                      <div className="text-center py-10 border-2 border-dashed border-white/5 rounded-3xl opacity-40">
+                        <p className="text-xs font-bold uppercase tracking-widest">目前無任何細項物資</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 底部操作 */}
+              <div className="pt-8 border-t border-white/5 flex gap-4">
+                {!isAdding && selectedItem && (
+                  <button onClick={() => handleDeleteNode(selectedItem.id)} className="p-5 rounded-3xl bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all">
+                    <Trash2 className="h-6 w-6" />
+                  </button>
+                )}
+                <button 
+                  onClick={handleSync}
+                  className="flex-1 flex items-center justify-center gap-3 rounded-3xl bg-blue-600 py-5 font-bold text-white hover:bg-blue-500 shadow-xl shadow-blue-900/40 transition-all active:scale-95"
+                >
+                  <Save className="h-5 w-5" /> 更新數位孿生同步
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
