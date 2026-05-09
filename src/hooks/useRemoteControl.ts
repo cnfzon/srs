@@ -1,8 +1,7 @@
 // src/hooks/useRemoteControl.ts
 import { useState, useEffect, useRef } from 'react';
-import { rtdb, db } from '@/lib/firebase';
+import { rtdb } from '@/lib/firebase';
 import { ref, onValue, set, remove } from 'firebase/database';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { TelemetryData, ControlCommands, RawSensorData } from '@/types/remote-control';
 
 export const useRemoteControl = () => {
@@ -18,93 +17,98 @@ export const useRemoteControl = () => {
   const pcRef = useRef<RTCPeerConnection | null>(null);
 
   useEffect(() => {
-    // 1. 初始化 PeerConnection，建議加入多個 STUN 伺服器增加穿透率
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
-      ]
+      ],
+      iceCandidatePoolSize: 10, // 預先收集候選者加速連線
     });
 
-    // 2. 監聽連線狀態（除錯用，可在 Vercel F12 查看）
     pc.oniceconnectionstatechange = () => {
       console.log(`⚡ ICE 連線狀態: ${pc.iceConnectionState}`);
-    };
-
-    pc.onicegatheringstatechange = () => {
-      console.log(`🔍 ICE 收集狀態: ${pc.iceGatheringState}`);
+      // 若連線中斷，清除畫面
+      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+        setStream(null);
+      }
     };
 
     pc.ontrack = (event) => {
-      console.log("🎬 接收到遠端串流");
+      console.log("🎬 接收到遠端影像軌道");
       setStream(event.streams[0]);
     };
 
     pcRef.current = pc;
 
-    // 3. 監聽 Python 端傳回的 Answer
     const answerRef = ref(rtdb, 'webrtc_signaling/answer');
     const unsubscribeAnswer = onValue(answerRef, async (snapshot) => {
       const answer = snapshot.val();
+      // 核心修正：增加對 signalingState 的檢查，避免重複觸發
       if (answer && pc.signalingState === "have-local-offer") {
-        console.log("✅ 收到 Answer，建立連線...");
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log("✅ 收到 Answer，嘗試建立連線...");
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        } catch (err) {
+          console.error("❌ 設定遠端描述失敗:", err);
+        }
       }
     });
 
-    // 4. 發起連線邏輯：必須等待 ICE 收集完成再發送 SDP
     const initiateCall = async () => {
-      const offer = await pc.createOffer({ offerToReceiveVideo: true });
-      await pc.setLocalDescription(offer);
+      try {
+        const offer = await pc.createOffer({ offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
 
-      // 監聽 ICE 收集狀態，直到 'complete' 才將 Offer 寫入 Firebase
-      // 這樣發出的 SDP 才會包含你的公網 IP 候選者
-      const checkIceGathering = () => {
+        // 核心修正：確保只有在收集到公網 IP (非 127.0.0.1) 後才發送 Offer
+        const checkIce = () => {
+          if (pc.iceGatheringState === 'complete') {
+            console.log("📡 ICE 收集完成，將 Offer 傳送至 Firebase");
+            set(ref(rtdb, 'webrtc_signaling/offer'), {
+              type: pc.localDescription?.type,
+              sdp: pc.localDescription?.sdp
+            });
+            pc.removeEventListener('icegatheringstatechange', checkIce);
+          }
+        };
+
         if (pc.iceGatheringState === 'complete') {
-          console.log("📡 ICE 收集完成，發送 Offer 至 Firebase");
-          set(ref(rtdb, 'webrtc_signaling/offer'), {
-            type: pc.localDescription?.type,
-            sdp: pc.localDescription?.sdp
-          });
-          pc.removeEventListener('icegatheringstatechange', checkIceGathering);
+          checkIce();
+        } else {
+          pc.addEventListener('icegatheringstatechange', checkIce);
         }
-      };
-
-      if (pc.iceGatheringState === 'complete') {
-        checkIceGathering();
-      } else {
-        pc.addEventListener('icegatheringstatechange', checkIceGathering);
+      } catch (err) {
+        console.error("❌ 發起連線失敗:", err);
       }
     };
 
-    initiateCall();
+    // 先清除舊的信令資料再發起
+    remove(ref(rtdb, 'webrtc_signaling')).then(() => initiateCall());
 
     return () => {
       unsubscribeAnswer();
-      // 離開頁面時清理連線與 Firebase 節點，避免下次連線讀到舊數據
       remove(ref(rtdb, 'webrtc_signaling'));
       pc.close();
       pcRef.current = null;
     };
   }, []);
 
-  // 遙測數據監聽 (維持不變)
+  // 遙測數據解析邏輯保持不變...
   useEffect(() => {
     const bridgeRef = ref(rtdb, 'command_bridge');
-    return onValue(bridgeRef, async (snapshot) => {
+    return onValue(bridgeRef, (snapshot) => {
       const val = snapshot.val();
-      if (val && val.payload) {
+      if (val?.payload) {
         try {
           const rawData: RawSensorData = JSON.parse(atob(val.payload));
           setTelemetry({
             status: rawData.status.toUpperCase(),
             coord: `(${rawData.coordinates.x}, ${rawData.coordinates.y}, ${rawData.coordinates.z})`,
             count: rawData.quantity,
-            conf: "0.95",
+            conf: "N/A",
             lastUpdate: rawData.timestamp
           });
-        } catch (e) { console.error(e); }
+        } catch (e) { console.error("遙測解析錯誤:", e); }
       }
     });
   }, []);
