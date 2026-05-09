@@ -46,6 +46,11 @@
     "overrides": {
       "three": "0.164.0",
       "scheduler": "0.23.2"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@firebase/util",
+      "protobufjs",
+      "unrs-resolver"
+    ]
   }
 }
