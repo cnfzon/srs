@@ -34,3 +34,9 @@ body {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 10px;
 }
+canvas + div pre {
+  font-family: 'Courier New', Courier, monospace !important;
+  font-size: 10px !important; /* 調小數值可以讓 ASCII 點陣更密集 */
+  line-height: 0.8 !important; /* 壓縮行距，讓圖形看起來更扁平、更像 3D 實體 */
+  letter-spacing: 2px !important;
+}

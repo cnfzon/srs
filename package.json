@@ -4,7 +4,6 @@
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "scripts": {
-    "preinstall": "node scripts/only-allow-pnpm.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -12,22 +11,27 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.6.1",
-    "firebase": "^12.12.1",
-    "framer-motion": "^12.38.0",
-    "leaflet": "^1.9.4",
-    "lucide-react": "^0.542.0",
-    "next": "^14.2.32",
-    "qrcode.react": "^4.2.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-firebase-hooks": "^5.1.1",
+    "next": "14.2.32",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.164.0",
+    "@types/three": "0.164.0",
+    "@react-three/fiber": "8.17.10",
+    "@react-three/drei": "9.106.0",
+    "scheduler": "0.23.2",
+    "firebase": "12.12.1",
+    "framer-motion": "12.38.0",
+    "leaflet": "1.9.4",
+    "lucide-react": "0.542.0",
+    "qrcode.react": "4.2.0",
+    "react-firebase-hooks": "5.1.1",
     "react-leaflet": "4.2.1",
-    "three": "^0.184.0"
+    "tailwind-merge": "3.5.0",
+    "tailwindcss-animate": "1.0.7",
+    "clsx": "2.1.1"
   },
   "devDependencies": {
-    "@types/leaflet": "^1.9.21",
+    "@types/leaflet": "^1.9.12",
     "@types/node": "^22.17.0",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
@@ -37,5 +41,11 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.9.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "three": "0.164.0",
+      "scheduler": "0.23.2"
+    }
   }
 }
