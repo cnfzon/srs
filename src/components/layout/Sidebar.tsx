@@ -27,7 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/map", label: "資源地圖", icon: <MapPin className="h-5 w-5" /> },
   { href: "/dashboard/request", label: "QR 調度", icon: <ClipboardList className="h-5 w-5" /> },
   { href: "/dashboard/3d-view", label: "3D 檢視", icon: <Box className="h-5 w-5" /> },
-  { href: "/dashboard/analytics", label: "數據分析", icon: <TrendingUp className="h-5 w-5" /> },
+  { href: "/dashboard/remote-control", label: "遠端操作", icon: <TrendingUp className="h-5 w-5" /> },
 ];
 
 export default function Sidebar() {
