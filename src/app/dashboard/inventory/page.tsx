@@ -4,19 +4,16 @@ import { useMemo } from "react";
 import {
   ArrowUpRight,
   Download,
-  RefreshCcw,
-  Plus,
-  Minus,
   ShieldCheck,
   Sparkles,
+  LayoutDashboard,
 } from "lucide-react";
 import { InventoryCard } from "@/components/inventory/InventoryCard";
 import { StatPanel } from "@/components/inventory/StatPanel";
 import { useInventory } from "@/hooks/useInventory";
-import type { InventoryItem } from "@/types/inventory";
 
 export default function InventoryDashboardPage() {
-  const { items, loading, error, lastUpdated } = useInventory();
+  const { items, loading, lastUpdated } = useInventory();
 
   const stats = useMemo(() => {
     const stable = items.filter((item) => item.status === "STABLE").length;
@@ -26,174 +23,144 @@ export default function InventoryDashboardPage() {
     return { stable, warning, critical, total: items.length, lastSyncMs };
   }, [items, lastUpdated]);
 
-  const displayItems: InventoryItem[] = loading ? [] : items;
-
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div className="space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[11px] uppercase tracking-[0.28em] text-slate-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shadow-sm shadow-emerald-500/30" />
-            Real-time Sync
+    /** * 核心修正：
+     * 1. 確保使用 min-h-screen 而非 h-screen
+     * 2. 增加 overflow-y-auto 確保容器本身可滾動
+     * 3. 確保 bg 固定或隨內容延伸
+     */
+    <div className="min-h-screen w-full bg-[#020617] overflow-y-auto overflow-x-hidden p-4 md:p-8 space-y-8">
+      
+      {/* Header Area */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3 py-1 text-[10px] font-medium uppercase tracking-widest text-emerald-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+            System Live Sync: Active
           </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Digital Twin Active</p>
-            <h1 className="mt-2 text-4xl font-black text-white">Warehouse Station Alpha-9</h1>
-          </div>
-          <p className="max-w-2xl text-slate-300">
-            即時物資看板正在監控所有倉儲與配送節點，並於 Firestore 中同步庫存狀態。
+          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white flex items-center gap-3">
+            <LayoutDashboard className="h-8 w-8 text-blue-500" />
+            物資分配指揮中心
+          </h1>
+          <p className="text-slate-400 max-w-xl text-sm md:text-base">
+            當前正在監控全域資源調度。此界面由數位孿生系統驅動，即時同步來自影像辨識端與前端的數據。
           </p>
         </div>
+        
         <div className="flex flex-wrap items-center gap-3">
-          <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition">
-            <Download className="h-4 w-4" /> 匯出報告
+          <button className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/5 px-5 py-2.5 text-sm font-bold text-slate-300 hover:bg-white/10 transition-all">
+            <Download className="h-4 w-4" /> 報表導出
           </button>
-          <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-blue-500/15 px-4 py-3 text-sm font-semibold text-blue-200 hover:bg-blue-500/20 transition">
-            <ShieldCheck className="h-4 w-4" /> 安全巡檢
+          <button className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 shadow-lg shadow-blue-900/20 transition-all">
+            <ShieldCheck className="h-4 w-4" /> 安全查核
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <section className="xl:col-span-8 space-y-6 rounded-[2rem] border border-white/10 bg-white/5 p-5 shadow-glow backdrop-blur-xl">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-slate-950/80 px-3 py-2 text-xs uppercase tracking-[0.32em] text-slate-300">
-                <Sparkles className="h-4 w-4 text-emerald-300" /> High-tech Command Center
+      {/* Main Content Grid - 修復高度塌陷導致的跑版 */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 auto-rows-min">
+        
+        {/* Left Side: Monitor */}
+        <section className="xl:col-span-8 group relative rounded-[2.5rem] border border-white/10 bg-slate-900/40 p-1 backdrop-blur-3xl transition-all hover:border-white/20 overflow-hidden">
+          <div className="m-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Real-time Topographic</span>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-amber-400" /> 資源站點拓樸監控
+                </h2>
               </div>
-              <h2 className="text-2xl font-black text-white">智能工廠與倉儲監控</h2>
-              <p className="max-w-2xl text-slate-400">
-                即時資源地圖、庫存警報與物資狀態一目了然。利用大數據與數位孿生，提升災難應變效率。
-              </p>
+              <div className="flex -space-x-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-8 w-8 rounded-full border-2 border-slate-900 bg-slate-800 flex items-center justify-center text-[10px] text-slate-400 font-bold">
+                    OP{i}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition">
-                <Plus className="h-4 w-4" /> Add Node
-              </button>
-              <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-100 hover:bg-white/10 transition">
-                <Minus className="h-4 w-4" /> Remove
-              </button>
-              <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-blue-500/15 px-4 py-3 text-sm font-semibold text-blue-100 hover:bg-blue-500/20 transition">
-                <RefreshCcw className="h-4 w-4" /> Refresh
-              </button>
-            </div>
-          </div>
 
-          <div className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 overflow-hidden shadow-inner">
-            <div className="relative h-[420px] overflow-hidden rounded-[1.5rem] border border-white/10 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.24),transparent_20%),radial-gradient(circle_at_bottom_left,_rgba(16,185,129,0.18),transparent_22%)]" />
-              <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(15,23,42,0.7),rgba(15,23,42,0.95))]" />
-              <div className="relative z-10 h-full w-full p-6">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-xs uppercase tracking-[0.32em] text-slate-400">Warehouse Topology</p>
-                    <h3 className="text-xl font-black text-white">Resource Point Alpha-9</h3>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-2 text-sm text-emerald-200">
-                      <span className="h-2 w-2 rounded-full bg-emerald-300 animate-pulse" /> Realtime Sync
-                    </div>
+            {/* 可視化數據主體 - 修正寬度與高度比例 */}
+            <div className="relative min-h-[300px] lg:min-h-[400px] w-full rounded-[2rem] border border-white/5 bg-[#0a0f1e] overflow-hidden shadow-inner">
+              <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+              
+              <div className="relative z-10 p-6 md:p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="flex flex-col justify-between rounded-3xl border border-white/5 bg-white/5 p-6 backdrop-blur-md min-h-[140px]">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Normal Nodes</span>
+                  <div className="mt-4">
+                    <span className="text-5xl font-black text-white leading-none">{stats.stable}</span>
+                    <p className="text-emerald-400 text-xs mt-3 flex items-center gap-1 font-bold">↑ 運作正常</p>
                   </div>
                 </div>
-                <div className="mt-8 grid grid-cols-3 gap-4">
-                  {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={index} className="rounded-3xl border border-white/10 bg-white/5 p-4 text-slate-200">
-                      <div className="text-[10px] uppercase tracking-[0.35em] text-slate-400">Zone {index + 1}</div>
-                      <div className="mt-4 flex h-24 items-end justify-center rounded-3xl bg-slate-800/80">
-                        <span className="text-3xl font-black">{index === 0 ? "88%" : index === 1 ? "42%" : "12%"}</span>
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex flex-col justify-between rounded-3xl border border-amber-500/20 bg-amber-500/5 p-6 backdrop-blur-md min-h-[140px]">
+                  <span className="text-xs font-bold text-amber-500/50 uppercase tracking-widest">Warnings</span>
+                  <div className="mt-4">
+                    <span className="text-5xl font-black text-amber-400 leading-none">{stats.warning}</span>
+                    <p className="text-amber-500/70 text-xs mt-3 font-bold">需注意庫存</p>
+                  </div>
                 </div>
-                <div className="mt-8 rounded-3xl border border-white/10 bg-slate-950/70 p-4 grid grid-cols-3 gap-4 text-slate-200 text-[10px] uppercase tracking-[0.2em]">
-                  <div className="rounded-3xl bg-slate-900/80 p-3">Camera Pos: 45.2, -12.8, 104.0</div>
-                  <div className="rounded-3xl bg-slate-900/80 p-3">Render Scale: 1:1000m</div>
-                  <div className="rounded-3xl bg-slate-900/80 p-3">Active Feed</div>
+                <div className="flex flex-col justify-between rounded-3xl border border-red-500/20 bg-red-500/5 p-6 backdrop-blur-md min-h-[140px]">
+                  <span className="text-xs font-bold text-red-500/50 uppercase tracking-widest">Critical</span>
+                  <div className="mt-4">
+                    <span className="text-5xl font-black text-red-400 leading-none">{stats.critical}</span>
+                    <p className="text-red-400 text-xs mt-3 font-bold">物資嚴重短缺</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <aside className="xl:col-span-4 space-y-6">
-          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-glow backdrop-blur-xl">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Performance Overview</p>
-                <h2 className="mt-2 text-2xl font-black text-white">Resource Health</h2>
+        {/* Right Side: Stats Panel */}
+        <aside className="xl:col-span-4 flex flex-col h-full">
+          <div className="flex-1 rounded-[2.5rem] border border-white/10 bg-slate-900/40 p-6 backdrop-blur-3xl transition-all hover:border-white/20 min-h-[400px]">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-lg font-bold text-white tracking-tight">系統健康度分析</h3>
+              <div className="h-10 w-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                <ArrowUpRight className="h-5 w-5" />
               </div>
-              <ArrowUpRight className="h-5 w-5 text-emerald-300" />
             </div>
-            <div className="mt-6">
-              <StatPanel
-                total={stats.total}
-                stable={stats.stable}
-                warning={stats.warning}
-                critical={stats.critical}
-                lastSyncMs={stats.lastSyncMs}
-              />
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-glow backdrop-blur-xl">
-            <h3 className="text-lg font-bold text-white mb-5">Station Status</h3>
-            <div className="space-y-4">
-              {[
-                { name: "Storage Area A-1", label: "Healthy", ratio: 88, tone: "emerald" },
-                { name: "Bulk Distribution B-4", label: "Attention", ratio: 42, tone: "amber" },
-                { name: "Cold Chain C-12", label: "Critical", ratio: 12, tone: "red" },
-              ].map((stat) => (
-                <div key={stat.name} className="rounded-3xl border border-white/10 bg-slate-950/80 p-4">
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <p className="font-bold text-white">{stat.name}</p>
-                      <p className="text-xs text-slate-400">Status overview</p>
-                    </div>
-                    <span className={`rounded-full px-3 py-1 text-[11px] uppercase tracking-[0.25em] ${
-                      stat.tone === "emerald"
-                        ? "bg-emerald-500/10 text-emerald-300"
-                        : stat.tone === "amber"
-                        ? "bg-amber-500/10 text-amber-300"
-                        : "bg-red-500/10 text-red-300"
-                    }`}>{stat.label}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className={`h-full ${stat.tone === "emerald" ? "bg-emerald-400" : stat.tone === "amber" ? "bg-amber-400" : "bg-red-400"}`}
-                        style={{ width: `${stat.ratio}%` }}
-                      />
-                    </div>
-                    <span className="text-xs font-semibold text-slate-300">{stat.ratio}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+            
+            <StatPanel
+              total={stats.total}
+              stable={stats.stable}
+              warning={stats.warning}
+              critical={stats.critical}
+              lastSyncMs={stats.lastSyncMs}
+            />
           </div>
         </aside>
       </div>
 
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Resource Cards</p>
-            <h3 className="text-2xl font-black text-white">動態庫存快照</h3>
+      {/* Inventory Snapshot Section - 即時動態庫存快照 */}
+      <div className="space-y-6 pb-20">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-2 gap-4">
+          <div className="flex items-center gap-4">
+            <h3 className="text-2xl font-black text-white tracking-tight">即時動態庫存快照</h3>
+            <span className="rounded-lg bg-blue-500/10 px-3 py-1 text-xs font-bold text-blue-400 border border-blue-500/20 whitespace-nowrap">
+              Total: {stats.total}
+            </span>
           </div>
-          <div className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
-            共 {stats.total} 項目
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
+            Auto-refreshing every 3.0s
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+
+        {/* 捲動內容容器 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-6">
           {loading ? (
-            Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="h-60 animate-pulse rounded-3xl border border-white/10 bg-white/5" />
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-64 animate-pulse rounded-[2rem] border border-white/5 bg-white/5 shadow-inner" />
             ))
-          ) : displayItems.length === 0 ? (
-            <div className="col-span-full rounded-3xl border border-white/10 bg-white/5 p-8 text-slate-300">
-              目前 Firestore 資料庫中的 resources 尚無資料，請先建立 sample 資料後重新整理。
-            </div>
+          ) : items.length > 0 ? (
+            items.map((item) => (
+              <div key={item.id} className="transition-transform duration-300 hover:scale-[1.02]">
+                <InventoryCard item={item} />
+              </div>
+            ))
           ) : (
-            displayItems.map((item) => <InventoryCard key={item.id} item={item} />)
+            <div className="col-span-full py-20 text-center rounded-[2rem] border border-dashed border-white/10 bg-white/5">
+              <p className="text-slate-500 font-medium italic">目前無活躍資源站點數據</p>
+            </div>
           )}
         </div>
       </div>

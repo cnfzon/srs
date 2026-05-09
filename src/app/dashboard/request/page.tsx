@@ -1,296 +1,272 @@
+// src/app/request/page.tsx
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-// 修正匯入方式
-import { QRCodeSVG } from 'qrcode.react'; 
-// 將 Task 替換為 ClipboardCheck，這在物資申請情境很合適
-import { CheckCircle2, ClipboardList, Copy, MapPin, ShieldCheck, Clock3, ClipboardCheck, Minus, Plus } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { QRCodeSVG } from 'qrcode.react';
+import { 
+  CheckCircle2, 
+  ClipboardList, 
+  Copy, 
+  MapPin, 
+  Clock3, 
+  ClipboardCheck, 
+  Minus, 
+  Plus,
+  Loader2,
+  AlertCircle
+} from "lucide-react";
 
-interface SupplyItem {
-  id: string;
-  name: string;
-  available: number;
-  selected: number;
-}
+// Firestore 相關匯入
+import { db } from "@/lib/firebase";
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { useStations } from "@/hooks/useStations";
+import { Station, InventoryItem } from "@/types/station";
 
 export default function QRDispatchPage() {
-  const [station, setStation] = useState("taipei-zhongshan");
-  const [items, setItems] = useState<SupplyItem[]>([
-    { id: "water", name: "瓶裝水", available: 100, selected: 5 },
-    { id: "noodles", name: "泡麵", available: 50, selected: 2 },
-    { id: "blanket", name: "毛毯", available: 20, selected: 1 },
-  ]);
+  // 1. 取得所有站點資料
+  const { stations, loading: stationsLoading } = useStations();
+  
+  // 2. 狀態管理
+  const [selectedStationId, setSelectedStationId] = useState<string>("");
+  const [requestItems, setRequestItems] = useState<InventoryItem[]>([]);
   const [requestSubmitted, setRequestSubmitted] = useState(false);
   const [transactionId, setTransactionId] = useState("");
   const [timeRemaining, setTimeRemaining] = useState(1800);
-  const [loading, setLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // 3. 當選擇站點時，初始化該站點的物資選取清單
+  const currentStation = useMemo(() => 
+    stations.find(s => s.id === selectedStationId), 
+    [stations, selectedStationId]
+  );
+
+  useEffect(() => {
+    if (currentStation) {
+      // 初始化選取數量為 0
+      const initialItems = currentStation.inventory.map(item => ({
+        ...item,
+        selected: 0 // 擴充型別用於 UI 控制
+      }));
+      setRequestItems(initialItems as any);
+    }
+  }, [currentStation]);
+
+  // 4. 倒數計時邏輯
   useEffect(() => {
     if (!requestSubmitted || timeRemaining <= 0) return;
-    const timer = setInterval(() => {
-      setTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    const timer = setInterval(() => setTimeRemaining(prev => prev - 1), 1000);
     return () => clearInterval(timer);
   }, [requestSubmitted, timeRemaining]);
-
-  const handleQuantityChange = (itemId: string, delta: number) => {
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item.id === itemId) {
-          const newQty = Math.max(0, Math.min(item.available, item.selected + delta));
-          return { ...item, selected: newQty };
-        }
-        return item;
-      })
-    );
-  };
-
-  const handleSubmitRequest = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-
-    const selectedItems = items.filter((item) => item.selected > 0);
-    if (selectedItems.length === 0) {
-      setError("請選擇至少一項物資");
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const txId = `RO-${Math.floor(Math.random() * 100000)}-TX`;
-      setTransactionId(txId);
-      setTimeRemaining(1800);
-      setRequestSubmitted(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "申請失敗，請重試");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const stationNames: Record<string, string> = {
-    "taipei-zhongshan": "台北中山資源站",
-    "newtaipei-banqiao": "新北板橋配送中心",
-    "taoyuan-depot": "桃園區域倉庫",
+  // 5. 數量增減控制
+  const updateQuantity = (index: number, delta: number) => {
+    const newItems = [...requestItems];
+    const item = newItems[index] as any;
+    const newCount = (item.selected || 0) + delta;
+    
+    if (newCount >= 0 && newCount <= item.quantity) {
+      item.selected = newCount;
+      setRequestItems(newItems);
+    }
   };
+
+  // 6. 提交申請至 Firestore
+  const handleSubmitRequest = async () => {
+    const selectedList = requestItems.filter((item: any) => item.selected > 0);
+    if (selectedList.length === 0) {
+      setError("請至少選擇一項物資");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      const docRef = await addDoc(collection(db, "requests"), {
+        stationId: selectedStationId,
+        stationName: currentStation?.name,
+        items: selectedList,
+        status: "PENDING",
+        createdAt: serverTimestamp(),
+        expireAt: new Date(Date.now() + 1800 * 1000), // 30分鐘後過期
+      });
+
+      setTransactionId(docRef.id);
+      setRequestSubmitted(true);
+      setTimeRemaining(1800);
+    } catch (err) {
+      console.error("提交錯誤:", err);
+      setError("提交失敗，請檢查網路連線");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (stationsLoading) {
+    return (
+      <div className="flex h-[60vh] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-3">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-slate-400">Supply Request</p>
-            <h1 className="text-4xl font-black text-white">物資申請</h1>
-          </div>
-          <p className="max-w-2xl text-slate-300">
-            生成安全的 QR 碼以從本地配送中心快速領取物資。
-          </p>
+    <div className="mx-auto max-w-4xl space-y-8 p-4 pb-20">
+      {/* 標題區域 */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-blue-400">
+          <ClipboardCheck className="h-5 w-5" />
+          <span className="text-xs font-bold uppercase tracking-widest">Supply Dispatch</span>
         </div>
+        <h1 className="text-3xl font-black text-white">物資領取申請</h1>
+        <p className="text-slate-400">選擇鄰近站點並預約您需要的物資，系統將產生核銷 QR Code。</p>
       </div>
 
       {!requestSubmitted ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-7 space-y-6">
-            <form onSubmit={handleSubmitRequest} className="rounded-[2rem] border border-white/10 bg-slate-950/85 p-6 shadow-glow backdrop-blur-xl">
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-xs uppercase tracking-[0.35em] text-slate-400 mb-3">選擇物資點</label>
-                  <div className="relative">
-                    <select
-                      value={station}
-                      onChange={(e) => setStation(e.target.value)}
-                      className="w-full rounded-2xl border border-white/10 bg-slate-900/80 px-4 py-3 text-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
-                    >
-                      {Object.entries(stationNames).map(([key, name]) => (
-                        <option key={key} value={key} className="bg-slate-950 text-white">
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-slate-400">
-                      <MapPin className="h-5 w-5" />
-                    </div>
-                  </div>
-                </div>
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+          {/* 左側：站點與物資選擇 */}
+          <div className="space-y-6 lg:col-span-8">
+            {/* 站點選擇 */}
+            <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-md">
+              <label className="mb-4 flex items-center gap-2 text-sm font-bold text-slate-300">
+                <MapPin className="h-4 w-4 text-blue-400" /> 選擇領取站點
+              </label>
+              <select
+                value={selectedStationId}
+                onChange={(e) => setSelectedStationId(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-slate-900 p-4 text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="" disabled>請選擇站點...</option>
+                {stations.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name} ({s.status})</option>
+                ))}
+              </select>
+            </div>
 
-                <div>
-                  <label className="block text-xs uppercase tracking-[0.35em] text-slate-400 mb-3">選擇所需物資</label>
-                  <div className="space-y-4">
-                    {items.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between rounded-[1.75rem] border border-white/10 bg-slate-900/80 p-4">
-                        <div className="flex items-center gap-4">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-blue-500/10 text-blue-300">
-                            {item.id === "water" && <MapPin className="h-5 w-5" />}
-                            {item.id === "noodles" && <ClipboardList className="h-5 w-5" />}
-                            {item.id === "blanket" && <ShieldCheck className="h-5 w-5" />}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-white">{item.name}</p>
-                            <p className="text-sm text-slate-400">可用：{item.available}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 rounded-full bg-slate-950/90 px-2 py-1">
-                          <button
-                            type="button"
-                            onClick={() => handleQuantityChange(item.id, -1)}
-                            className="rounded-full bg-white/5 p-2 text-slate-200 hover:bg-white/10 transition"
-                          >
-                            <Minus className="h-4 w-4" />
-                          </button>
-                          <span className="w-8 text-center text-lg font-bold text-white">{item.selected}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleQuantityChange(item.id, 1)}
-                            className="rounded-full bg-white/5 p-2 text-slate-200 hover:bg-white/10 transition"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                        </div>
+            {/* 物資清單 */}
+            {selectedStationId && (
+              <div className="space-y-4">
+                <h3 className="flex items-center gap-2 px-2 text-sm font-bold text-slate-300">
+                  <ClipboardList className="h-4 w-4 text-blue-400" /> 可用物資清單
+                </h3>
+                <div className="grid gap-3">
+                  {requestItems.map((item: any, index) => (
+                    <div key={item.name} className="flex items-center justify-between rounded-2xl border border-white/5 bg-white/5 p-4 transition-all hover:bg-white/10">
+                      <div>
+                        <p className="font-bold text-white">{item.name}</p>
+                        <p className="text-xs text-slate-500">庫存餘額: {item.quantity} {item.unit}</p>
                       </div>
-                    ))}
-                  </div>
+                      <div className="flex items-center gap-4 bg-black/20 p-1 rounded-xl">
+                        <button 
+                          onClick={() => updateQuantity(index, -1)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-white hover:bg-white/10"
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <span className="w-8 text-center font-mono font-bold text-blue-400">{item.selected || 0}</span>
+                        <button 
+                          onClick={() => updateQuantity(index, 1)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-500"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-
-                {error && (
-                  <div className="rounded-2xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-200">
-                    {error}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full rounded-2xl bg-blue-500 px-6 py-4 text-sm font-bold text-white shadow-lg shadow-blue-500/20 transition hover:bg-blue-400 disabled:opacity-60"
-                >
-                  <ClipboardCheck className="inline-block h-4 w-4 mr-2" /> {loading ? "生成中..." : "生成 QR 碼"}
-                </button>
               </div>
-            </form>
+            )}
           </div>
 
-          <div className="lg:col-span-5 rounded-[2rem] border border-dashed border-blue-400/30 bg-slate-950/85 p-8 text-center shadow-glow backdrop-blur-xl relative overflow-hidden">
-            <div className="absolute -right-10 -bottom-10 opacity-10">
-              <MapPin className="h-[200px] w-[200px] text-blue-500/20" />
-            </div>
-            <div className="relative z-10 mx-auto flex h-48 w-48 items-center justify-center rounded-[2rem] bg-slate-900/80 border border-white/10">
-              <MapPin className="h-16 w-16 text-blue-400/70" />
-            </div>
-            <div className="mt-8 space-y-4">
-              <p className="text-lg font-bold text-white">QR 申請預覽</p>
-              <p className="text-slate-400">系統將會於生成後建立一組安全憑證，並於右側顯示 QR Code。</p>
+          {/* 右側：確認資訊 */}
+          <div className="lg:col-span-4">
+            <div className="sticky top-8 rounded-3xl border border-blue-500/20 bg-blue-500/5 p-6 backdrop-blur-xl">
+              <h3 className="mb-4 text-lg font-bold text-white">申請摘要</h3>
+              <div className="space-y-3 border-b border-white/10 pb-4">
+                {requestItems.filter((i: any) => i.selected > 0).map((item: any) => (
+                  <div key={item.name} className="flex justify-between text-sm">
+                    <span className="text-slate-400">{item.name}</span>
+                    <span className="font-mono text-white">x{item.selected}</span>
+                  </div>
+                ))}
+                {requestItems.filter((i: any) => i.selected > 0).length === 0 && (
+                  <p className="text-center text-xs text-slate-500 py-4">尚未選擇物資</p>
+                )}
+              </div>
+              
+              {error && (
+                <div className="mt-4 flex items-center gap-2 rounded-xl bg-red-500/10 p-3 text-xs text-red-400">
+                  <AlertCircle className="h-4 w-4" /> {error}
+                </div>
+              )}
+
+              <button
+                onClick={handleSubmitRequest}
+                disabled={!selectedStationId || isSubmitting}
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-4 font-bold text-white transition-all hover:bg-blue-500 disabled:opacity-50"
+              >
+                {isSubmitting ? <Loader2 className="h-5 w-5 animate-spin" /> : "確認提交申請"}
+              </button>
             </div>
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-7 gap-6">
-          <div className="lg:col-span-4 space-y-6">
-            <div className="rounded-[2rem] border border-white/10 bg-slate-950/85 p-6 shadow-glow backdrop-blur-xl">
-              <h2 className="text-2xl font-bold text-white mb-4">申請詳情</h2>
-              <div className="space-y-4 text-sm text-slate-300">
-                <div className="flex justify-between">
-                  <span>物資站</span>
-                  <span className="font-semibold text-white">{stationNames[station]}</span>
-                </div>
-                <div>
-                  <span className="block text-slate-500 mb-2">所選物資</span>
-                  <div className="space-y-2">
-                    {items.filter((item) => item.selected > 0).map((item) => (
-                      <div key={item.id} className="flex justify-between text-white/90">
-                        <span>{item.name}</span>
-                        <span>× {item.selected}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+        /* 申請成功 - QR Code 顯示 */
+        <div className="flex flex-col items-center justify-center space-y-8 animate-in fade-in zoom-in duration-500">
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-500">
+              <CheckCircle2 className="h-10 w-10" />
             </div>
+            <h2 className="text-2xl font-black text-white">申請已生效</h2>
+            <p className="text-slate-400 text-sm">請向站點工作人員出示此代碼進行核銷</p>
+          </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/85 p-5 text-slate-300">
-                <div className="flex items-center gap-3 text-blue-300 mb-3">
-                  <MapPin className="h-5 w-5" />
-                  <span className="font-semibold text-white">站點導航</span>
-                </div>
-                <p className="text-sm">依照指示前往最近的資源點完成領取。</p>
-              </div>
-              <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/85 p-5 text-slate-300">
-                <div className="flex items-center gap-3 text-amber-300 mb-3">
-                  <Clock3 className="h-5 w-5" />
-                  <span className="font-semibold text-white">30 分鐘限制</span>
-                </div>
-                <p className="text-sm">請於 30 分鐘內出示 QR 碼，以完成收貨流程。</p>
-              </div>
-            </div>
-
-            <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/85 p-5 text-slate-300">
-              <div className="flex items-center gap-3 text-emerald-300 mb-3">
-                <ShieldCheck className="h-5 w-5" />
-                <span className="font-semibold text-white">安全驗證</span>
-              </div>
-              <p className="text-sm">出示此 QR 碼予站務人員進行領取確認。</p>
+          <div className="relative rounded-[2.5rem] bg-white p-8 shadow-[0_0_50px_-12px_rgba(59,130,246,0.5)]">
+            <QRCodeSVG value={transactionId} size={200} level="H" />
+            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-4 py-1 text-[10px] font-bold text-white shadow-lg">
+              VALID TOKEN
             </div>
           </div>
 
-          <div className="lg:col-span-3 rounded-[2rem] border border-white/10 bg-slate-950/85 p-6 shadow-glow backdrop-blur-xl flex flex-col items-center text-center">
-            <div className="rounded-3xl bg-white p-5 shadow-inner">
-              {/* 這裡修正為 QRCodeSVG */}
-              <QRCodeSVG
-                value={`${transactionId}|${station}|${items
-                  .filter((item) => item.selected > 0)
-                  .map((item) => `${item.id}:${item.selected}`)
-                  .join(",")}`}
-                size={220}
-                level="H"
-                includeMargin={true}
-              />
-            </div>
-            <div className="mt-6 space-y-4 text-left w-full">
-              <span className="inline-flex rounded-full bg-emerald-500/15 px-3 py-1 text-xs uppercase tracking-[0.25em] text-emerald-300">
-                <CheckCircle2 className="h-4 w-4 mr-2" /> 有效憑證
-              </span>
-              <p className="text-lg font-bold text-white">請在 30 分鐘內前往資源站領取，並向管理員出示此 QR Code。</p>
-              <p className="text-sm text-slate-400 italic">Please present this QR code to the station administrator within 30 minutes to complete your collection.</p>
-              <div className="space-y-3 border-t border-white/10 pt-4 text-sm text-slate-300">
-                <div className="flex justify-between">
-                  <span>交易編號</span>
-                  <span className="font-semibold text-white">#{transactionId}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>有效期限</span>
-                  <span className="font-semibold text-red-300">{formatTime(timeRemaining)}</span>
-                </div>
+          <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/5 p-6">
+            <div className="space-y-4 text-sm">
+              <div className="flex justify-between border-b border-white/5 pb-2">
+                <span className="text-slate-400">交易單號</span>
+                <span className="font-mono font-semibold text-white">#{transactionId.slice(-8).toUpperCase()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">剩餘效期</span>
+                <span className="flex items-center gap-1 font-mono font-semibold text-red-400">
+                  <Clock3 className="h-3 w-3" /> {formatTime(timeRemaining)}
+                </span>
               </div>
             </div>
-            <div className="mt-6 grid w-full grid-cols-2 gap-3">
+            
+            <div className="mt-6 grid grid-cols-2 gap-3">
               <button
                 onClick={() => {
                   setRequestSubmitted(false);
                   setTransactionId("");
                 }}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10 transition"
+                className="rounded-2xl bg-white/5 px-4 py-3 text-xs font-bold text-white hover:bg-white/10 transition"
               >
-                新增申請
+                返回修改
               </button>
               <button
                 onClick={() => {
-                  const qrContent = `${transactionId}|${station}|${items
-                    .filter((item) => item.selected > 0)
-                    .map((item) => `${item.id}:${item.selected}`)
-                    .join(",")}`;
-                  navigator.clipboard.writeText(qrContent);
-                  alert("已複製到剪貼板");
+                  navigator.clipboard.writeText(transactionId);
+                  alert("憑證已複製");
                 }}
-                className="rounded-2xl bg-blue-500 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-400 transition"
+                className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-bold text-white hover:bg-blue-500 transition"
               >
-                <Copy className="inline-block h-4 w-4 mr-2" /> 複製憑證
+                <Copy className="h-3 w-3" /> 複製憑證
               </button>
             </div>
           </div>

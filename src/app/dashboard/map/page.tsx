@@ -1,187 +1,210 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { Plus, Search, Navigation, Info, Trash2, Pencil, Check, X } from "lucide-react";
+import { Plus, Search, Navigation, Map as MapIcon, Loader2, Info, AlertCircle } from "lucide-react";
 import type { MapProps } from "@/components/MapComponent";
+import { useStations } from "@/hooks/useStations";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, GeoPoint } from "firebase/firestore";
 
+// 動態載入地圖組件以避免 SSR 問題
 const MapComponent = dynamic<MapProps>(
   () => import("@/components/MapComponent"),
   { 
     ssr: false, 
-    loading: () => <div className="h-full w-full bg-[#0b1220]" /> 
+    loading: () => (
+      <div className="h-full w-full bg-[#0b1220] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+      </div>
+    ) 
   }
 );
 
 export default function ResourceMapPage() {
-  const [selectedStation, setSelectedStation] = useState("station-alpha");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const listRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  // 1. 狀態管理
+  const { stations, loading } = useStations();
+  const [selectedStationId, setSelectedStationId] = useState<string | undefined>(undefined);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [stations, setStations] = useState([
-    { id: "station-alpha", name: "北科實驗室", lat: 25.0433, lng: 121.5348, status: "NORMAL", inventory: "24 Units", desc: "主要位於北側工業區，負責化學物資儲備。" },
-    { id: "medical-west", name: "光華中心", lat: 25.0445, lng: 121.5325, status: "LOW_STOCK", inventory: "14%", desc: "西區醫療核心，目前抗生素庫存偏低。" },
-    { id: "station-beta", name: "忠孝新生觀測站", lat: 25.0421, lng: 121.5360, status: "NORMAL", inventory: "Sufficient", desc: "高地觀測站，目前通訊與電力供應穩定。" },
-    { id: "station-abc", name: "電神照聲的家", lat: 25.0434, lng: 121.5402, status: "NORMAL", inventory: "Sufficient", desc: "太電了 輕鬆科秒 " },
-  ]);
-
-  const handleAddStation = (newStation: any) => {
-    setStations((prev) => [...prev, newStation]);
-    setSelectedStation(newStation.id);
-  };
-
-  const handleDeleteStation = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    if (confirm("確定要刪除此物資點嗎？")) {
-      setStations((prev) => prev.filter((s) => s.id !== id));
-      if (selectedStation === id) setSelectedStation("");
-    }
-  };
-
-  const startEditing = (e: React.MouseEvent, station: any) => {
-    e.stopPropagation();
-    setEditingId(station.id);
-    setEditName(station.name);
-  };
-
-  const saveEdit = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setStations(prev => prev.map(s => s.id === editingId ? { ...s, name: editName } : s));
-    setEditingId(null);
-  };
-
+  // 自動選擇列表中的第一個站點作為初始焦點
   useEffect(() => {
-    if (selectedStation && listRefs.current[selectedStation]) {
-      listRefs.current[selectedStation]?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (stations.length > 0 && !selectedStationId) {
+      setSelectedStationId(stations[0].id);
     }
-  }, [selectedStation]);
+  }, [stations, selectedStationId]);
+
+  // 2. 搜尋過濾邏輯
+  const filteredStations = stations.filter(s => 
+    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    s.description.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const currentStation = stations.find(s => s.id === selectedStationId);
+
+  // 3. 處理新增站點（最詳細版本：包含 Firestore 寫入與 GeoPoint 處理）
+  const handleAddStation = async (newStation: { 
+    name: string; 
+    desc: string; 
+    lat: number; 
+    lng: number; 
+    inventory: string 
+  }) => {
+    if (!newStation.name) {
+      alert("請輸入站點名稱");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      
+      // 將資料寫入 Firestore
+      const docRef = await addDoc(collection(db, "stations"), {
+        name: newStation.name,
+        description: newStation.desc,
+        location: new GeoPoint(newStation.lat, newStation.lng),
+        status: "充足", // 預設狀態
+        inventory: [
+          { name: "預設物資", quantity: parseInt(newStation.inventory) || 0, unit: "個" }
+        ],
+        updatedAt: new Date(),
+      });
+
+      console.log("站點已成功部署，ID: ", docRef.id);
+      setSelectedStationId(docRef.id); // 自動選中新建立的站點
+    } catch (error) {
+      console.error("新增站點時發生錯誤:", error);
+      alert("部署失敗，請檢查權限設定");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <div className="flex h-screen w-full bg-[#0b1220] overflow-hidden" suppressHydrationWarning>
-      
-      {/* 1. 地圖區域 */}
-      <main className="relative flex-1 h-full overflow-hidden">
-        <MapComponent 
-          stations={stations} 
-          selectedId={selectedStation} 
-          onAddStation={handleAddStation}
-          onMarkerClick={setSelectedStation}
-        />
-
-        {/* 狀態列保留於地圖內 */}
-        <div className="absolute bottom-6 left-6 z-30">
-          <div className="bg-[#0b1220]/80 backdrop-blur-xl border border-white/10 p-4 rounded-[1.5rem] shadow-2xl">
-            <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">System Status</h3>
-            <div className="flex gap-6 text-[10px] font-bold text-slate-300">
-              <div className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
-                正常運作
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* 2. 設施列表區域 */}
-      <aside className="w-[24rem] h-full flex flex-col bg-[#0b1220] border-l border-white/5 shadow-[-20px_0_40px_rgba(0,0,0,0.4)] z-40">
-        <div className="p-8 border-b border-white/5">
-          <div className="flex justify-between items-start mb-8">
+    <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 h-[calc(100vh-120px)] min-h-[600px]">
+      {/* 左側：控制面板 */}
+      <aside className="xl:col-span-4 flex flex-col gap-6 overflow-hidden">
+        <div className="bg-slate-900/40 backdrop-blur-xl border border-white/10 p-6 rounded-[2.5rem] flex flex-col gap-6 overflow-hidden shadow-2xl">
+          <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">設施列表</h2>
-              <p className="text-[10px] text-blue-500 font-bold uppercase tracking-widest mt-1">Infrastructure Control</p>
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <MapIcon className="h-5 w-5 text-blue-400" /> 資源部署監控
+              </h3>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">
+                Real-time Resource Distribution
+              </p>
             </div>
-            
-            {/* 新增按鈕：取代原本的圖層圖示 */}
-            <button 
-              onClick={() => alert("請在地圖上點擊位置以部署新點位")}
-              className="group h-11 w-11 rounded-2xl bg-blue-600/10 border border-blue-500/20 flex flex-col items-center justify-center hover:bg-blue-600 transition-all duration-300 shadow-lg shadow-blue-900/20"
-              title="部署新點位"
-            >
-              <Plus className="h-5 w-5 text-blue-400 group-hover:text-white" />
-              <span className="text-[7px] font-bold text-blue-400 group-hover:text-white uppercase mt-0.5">Add</span>
-            </button>
+            <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full">
+              <span className="text-xs font-bold text-blue-400">Total: {stations.length}</span>
+            </div>
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+          {/* 搜尋框 */}
+          <div className="relative group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
             <input 
-              className="w-full rounded-2xl bg-white/5 border border-white/5 py-3.5 pl-12 pr-4 text-sm text-white focus:ring-2 focus:ring-blue-500/50 outline-none" 
-              placeholder="搜尋物資站點..." 
+              type="text"
+              placeholder="搜尋站點或描述..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-black/20 border border-white/5 rounded-2xl py-3 pl-11 pr-4 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all"
             />
           </div>
-        </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-          {stations.map((station) => (
-            <div 
-              key={station.id}
-              ref={el => { listRefs.current[station.id] = el }}
-              onClick={() => setSelectedStation(station.id)}
-              className={`group relative p-5 rounded-3xl cursor-pointer transition-all duration-500 border ${
-                selectedStation === station.id 
-                ? "bg-blue-600 border-blue-400 shadow-xl scale-[1.02]" 
-                : "bg-white/[0.03] border-white/5 hover:bg-white/[0.08]"
-              }`}
-            >
-              {/* 操作按鈕組 */}
-              <div className="absolute top-4 right-4 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          {/* 站點清單 */}
+          <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-24 animate-pulse bg-white/5 rounded-3xl" />
+              ))
+            ) : filteredStations.length > 0 ? (
+              filteredStations.map((station) => (
                 <button
-                  onClick={(e) => startEditing(e, station)}
-                  className="p-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20"
+                  key={station.id}
+                  onClick={() => setSelectedStationId(station.id)}
+                  className={`w-full text-left p-4 rounded-3xl transition-all duration-300 border ${
+                    selectedStationId === station.id 
+                      ? "bg-blue-600 border-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.3)] scale-[1.02]" 
+                      : "bg-white/5 border-white/5 hover:bg-white/10"
+                  }`}
                 >
-                  <Pencil size={14} />
-                </button>
-                <button
-                  onClick={(e) => handleDeleteStation(e, station.id)}
-                  className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-
-              <div className="flex justify-between items-start pr-16">
-                <div className="w-full">
-                  {editingId === station.id ? (
-                    <div className="flex items-center gap-2 mb-1" onClick={e => e.stopPropagation()}>
-                      <input 
-                        autoFocus
-                        className="bg-black/40 border border-white/20 rounded px-2 py-1 text-sm text-white w-full outline-none focus:border-white"
-                        value={editName}
-                        onChange={e => setEditName(e.target.value)}
-                      />
-                      <button onClick={saveEdit} className="text-emerald-400 p-1"><Check size={16}/></button>
-                      <button onClick={() => setEditingId(null)} className="text-red-400 p-1"><X size={16}/></button>
-                    </div>
-                  ) : (
-                    <h4 className={`font-bold tracking-tight transition-colors ${selectedStation === station.id ? "text-white" : "text-slate-200"}`}>
+                  <div className="flex justify-between items-start mb-2">
+                    <h4 className={`font-bold transition-colors ${selectedStationId === station.id ? "text-white" : "text-slate-200"}`}>
                       {station.name}
                     </h4>
-                  )}
-                  <div className="flex items-center gap-2 mt-1">
-                    <Navigation className={`h-3 w-3 ${selectedStation === station.id ? "text-blue-200" : "text-blue-500"}`} />
-                    <span className={`text-[10px] font-mono ${selectedStation === station.id ? "text-blue-100" : "text-slate-400"}`}>
-                      {station.lat.toFixed(4)}, {station.lng.toFixed(4)}
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                      selectedStationId === station.id ? "bg-white/20 text-white" : "bg-blue-500/20 text-blue-400"
+                    }`}>
+                      {station.status}
                     </span>
                   </div>
-                </div>
+                  <div className="flex items-center gap-2">
+                    <Navigation className={`h-3 w-3 ${selectedStationId === station.id ? "text-blue-100" : "text-slate-500"}`} />
+                    <span className={`text-[10px] font-mono ${selectedStationId === station.id ? "text-blue-100" : "text-slate-400"}`}>
+                      {station.location.latitude.toFixed(4)}, {station.location.longitude.toFixed(4)}
+                    </span>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="text-center py-12">
+                <AlertCircle className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+                <p className="text-sm text-slate-500 font-medium">找不到匹配的站點</p>
               </div>
+            )}
+          </div>
 
-              {selectedStation === station.id && (
-                <div className="mt-4 pt-4 border-t border-white/20 animate-in fade-in slide-in-from-top-2">
-                  <div className="flex items-start gap-3 mb-4 bg-black/20 p-3 rounded-2xl">
-                    <Info className="h-4 w-4 text-blue-200 shrink-0 mt-0.5" />
-                    <p className="text-xs leading-relaxed text-blue-100 italic">{station.desc}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="bg-white/20 text-[9px] px-2.5 py-1 rounded-lg font-bold text-white uppercase">庫存: {station.inventory}</span>
-                  </div>
-                </div>
-              )}
+          {/* 操作提示 */}
+          <div className="bg-blue-500/5 border border-blue-500/10 p-4 rounded-2xl">
+            <div className="flex items-center gap-2 mb-1">
+              <Info className="h-4 w-4 text-blue-400" />
+              <p className="text-[10px] text-blue-400 font-bold uppercase">操作提示</p>
             </div>
-          ))}
+            <p className="text-xs text-slate-400 leading-relaxed">
+              在地圖上任意位置點擊，即可開啟視窗部署新的資源站點。
+            </p>
+          </div>
         </div>
       </aside>
+
+      {/* 右側：地圖顯示區域 */}
+      <section className="xl:col-span-8 relative rounded-[2.5rem] border border-white/10 bg-slate-900/40 p-2 overflow-hidden backdrop-blur-xl shadow-2xl">
+        {/* 地圖標題懸浮卡 */}
+        <div className="absolute top-6 left-6 z-10 flex flex-col gap-2">
+          <div className="bg-slate-900/80 backdrop-blur-md border border-white/10 p-3 rounded-2xl shadow-xl">
+            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Current Focus</p>
+            <h2 className="text-lg font-black text-white">{currentStation?.name || "未選取站點"}</h2>
+          </div>
+        </div>
+
+        {/* 地圖組件本體 */}
+        <div className="h-full w-full rounded-[2rem] overflow-hidden">
+          <MapComponent 
+            stations={stations.map(s => ({
+              id: s.id,
+              name: s.name,
+              lat: s.location.latitude,
+              lng: s.location.longitude,
+              status: s.status,
+              desc: s.description
+            }))}
+            selectedId={selectedStationId}
+            onMarkerClick={(id) => setSelectedStationId(id)}
+            onAddStation={handleAddStation}
+          />
+        </div>
+        
+        {/* 提交中遮罩 */}
+        {isSubmitting && (
+          <div className="absolute inset-0 z-[1000] bg-black/40 backdrop-blur-sm flex items-center justify-center">
+            <div className="bg-slate-900 border border-white/10 p-6 rounded-3xl flex flex-col items-center gap-4 shadow-2xl">
+              <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+              <p className="text-sm font-bold text-white tracking-widest">正在同步至 Firestore...</p>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

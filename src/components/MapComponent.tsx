@@ -1,3 +1,4 @@
+// src/components/MapComponent.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -14,7 +15,7 @@ const MARKER_ICON = new L.Icon({
 
 export interface MapProps {
   stations: any[];
-  selectedId: string;
+  selectedId?: string;
   onAddStation: (newStation: any) => void;
   onMarkerClick: (id: string) => void;
   onMapClick?: (lat: number, lng: number) => void;
@@ -22,7 +23,12 @@ export interface MapProps {
 
 function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }) {
   const [clickedPos, setClickedPos] = useState<L.LatLng | null>(null);
-  const [formData, setFormData] = useState({ name: "", desc: "", inventory: "" });
+  // 根據 Firestore 結構定義初始狀態
+  const [formData, setFormData] = useState({ 
+    name: "", 
+    description: "", 
+    status: "充足" // 預設狀態符合你目前的數據邏輯
+  });
 
   useMapEvents({
     click(e) {
@@ -32,66 +38,70 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clickedPos) return;
-
-    onAddStation({
-      id: `new-${Date.now()}`,
-      name: formData.name || "未命名點位",
-      lat: clickedPos.lat,
-      lng: clickedPos.lng,
-      status: "NORMAL",
-      inventory: formData.inventory || "0 Units",
-      desc: formData.desc || "手動新增的點位說明",
-    });
-
-    setClickedPos(null);
-    setFormData({ name: "", desc: "", inventory: "" });
+    if (clickedPos) {
+      onAddStation({
+        ...formData,
+        lat: clickedPos.lat,
+        lng: clickedPos.lng,
+        inventory: [] // 初始建立時給予空陣列
+      });
+      setClickedPos(null);
+      setFormData({ name: "", description: "", status: "充足" });
+    }
   };
 
-  // react-leaflet v4 的 Popup 支援直接傳入 position
   return clickedPos ? (
     <Popup 
       position={clickedPos} 
-      minWidth={200}
       eventHandlers={{
         remove: () => setClickedPos(null)
       }}
     >
-      <div className="p-2 flex flex-col gap-2 bg-[#0b1220] text-white">
-        <h3 className="text-sm font-bold border-b border-white/10 pb-1 mb-1 text-blue-400">新增物資點</h3>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-slate-400 uppercase">座標</span>
-            <code className="text-[10px] bg-white/5 p-1 rounded italic">
-              {clickedPos.lat.toFixed(4)}, {clickedPos.lng.toFixed(4)}
-            </code>
+      <div className="p-3 min-w-[220px] bg-slate-900 text-white rounded-lg">
+        <h3 className="font-bold text-blue-400 mb-3 text-sm flex items-center gap-2">
+          新增部署站點
+        </h3>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold">站點名稱</label>
+            <input
+              type="text"
+              placeholder="請輸入站點名稱..."
+              className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+            />
           </div>
-          <input
-            autoFocus
-            className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500 outline-none text-white"
-            placeholder="點位名稱..."
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
-          <input
-            className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500 outline-none text-white"
-            placeholder="物資數量 (e.g. 100 Units)..."
-            value={formData.inventory}
-            onChange={(e) => setFormData({ ...formData, inventory: e.target.value })}
-          />
-          <textarea
-            className="bg-white/5 border border-white/10 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500 outline-none resize-none text-white"
-            placeholder="點位簡介..."
-            rows={2}
-            value={formData.desc}
-            onChange={(e) => setFormData({ ...formData, desc: e.target.value })}
-          />
+          
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold">站點描述</label>
+            <textarea
+              placeholder="請輸入備註..."
+              className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white h-20 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] text-slate-400 uppercase font-bold">初始狀態</label>
+            <select 
+              className="w-full text-[12px] p-2 bg-slate-800 border border-white/10 rounded mt-1 text-white focus:outline-none"
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            >
+              <option value="充足">充足 (Stable)</option>
+              <option value="吃緊">吃緊 (Warning)</option>
+              <option value="短缺">短缺 (Critical)</option>
+            </select>
+          </div>
+
           <button
             type="submit"
-            className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 rounded text-[10px] transition-colors mt-1"
+            className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded text-xs transition-all mt-2 shadow-lg shadow-blue-500/20"
           >
-            確認新增
+            確認部署到此座標
           </button>
         </form>
       </div>
@@ -99,9 +109,10 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
   ) : null;
 }
 
-function MapAutoCenter({ stations, selectedId }: { stations: any[], selectedId: string }) {
+function MapAutoCenter({ stations, selectedId }: { stations: any[], selectedId?: string }) {
   const map = useMap();
   useEffect(() => {
+    if (!selectedId) return;
     const selected = stations.find(s => s.id === selectedId);
     if (selected && map) {
       map.flyTo([selected.lat, selected.lng], map.getZoom(), { animate: true });
@@ -110,7 +121,7 @@ function MapAutoCenter({ stations, selectedId }: { stations: any[], selectedId: 
   return null;
 }
 
-export default function MapComponent({ stations, selectedId, onAddStation, onMarkerClick, onMapClick }: MapProps) {
+export default function MapComponent({ stations, selectedId, onAddStation, onMarkerClick }: MapProps) {
   if (typeof window === "undefined") return null;
 
   return (
@@ -124,13 +135,20 @@ export default function MapComponent({ stations, selectedId, onAddStation, onMar
         <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
         <MapEvents onAddStation={onAddStation} />
         <MapAutoCenter stations={stations} selectedId={selectedId} />
+        
         {stations.map((station) => (
           <Marker
             key={station.id}
             position={[station.lat, station.lng]}
             icon={MARKER_ICON}
-            eventHandlers={{ click: () => onMarkerClick(station.id) }}
-          />
+            eventHandlers={{
+              click: () => onMarkerClick(station.id),
+            }}
+          >
+            <Popup>
+              <div className="text-sm font-bold text-slate-800">{station.name}</div>
+            </Popup>
+          </Marker>
         ))}
       </MapContainer>
     </div>

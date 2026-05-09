@@ -1,29 +1,48 @@
-"use client";
+// src/hooks/useInventory.ts
+import { useState, useEffect } from 'react';
+import { collection, onSnapshot, QuerySnapshot, DocumentData } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { InventoryItem, InventoryStatus } from '@/types/inventory';
 
-import { useMemo } from "react";
-import { collection, orderBy, query } from "firebase/firestore";
-import { useCollection } from "react-firebase-hooks/firestore";
-import { db } from "@/lib/firebase";
-import type { InventoryItem } from "@/types/inventory";
-
-/**
- * 即時監聽 Firestore `resources` 集合。
- * 後續要串接影像辨識，只要把辨識結果寫入同一集合，UI 會自動即時更新。
- */
 export function useInventory() {
-  const q = query(collection(db, "resources"), orderBy("lastUpdated", "desc"));
-  const [snapshot, loading, error] = useCollection(q);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
-  const items = useMemo<InventoryItem[]>(() => {
-    if (!snapshot) return [];
-    return snapshot.docs.map((d) => {
-      const data = d.data() as Omit<InventoryItem, "id">;
-      return { id: d.id, ...data };
+  useEffect(() => {
+    // 監聽 stations 集合
+    const unsubscribe = onSnapshot(collection(db, 'stations'), (snapshot: QuerySnapshot<DocumentData>) => {
+      const allItems: InventoryItem[] = [];
+      
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const stationInventory = data.inventory || [];
+        
+        stationInventory.forEach((inv: any) => {
+          // 根據數量判斷狀態 (可依需求調整邏輯)
+          let status: InventoryStatus = "STABLE";
+          if (inv.quantity < 20) status = "CRITICAL";
+          else if (inv.quantity < 50) status = "WARNING";
+
+          allItems.push({
+            id: `${doc.id}-${inv.name}`, // 組合 ID 確保唯一性
+            name: inv.name,
+            quantity: inv.quantity,
+            unit: inv.unit,
+            category: inv.category || 'general',
+            status: status,
+            updatedAt: Date.now()
+          });
+        });
+      });
+
+      setItems(allItems);
+      setLastUpdated(Date.now());
+      setLoading(false);
     });
-  }, [snapshot]);
 
-  const lastUpdated = items[0]?.lastUpdated ?? null;
+    return () => unsubscribe();
+  }, []);
 
-  return { items, loading, error, lastUpdated };
+  return { items, loading, lastUpdated };
 }
-
