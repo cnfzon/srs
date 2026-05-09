@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* 防止螢幕出現多餘捲軸 */
+}
+
+:root {
+  color-scheme: dark;
+  --background: #0b1220;
+  --foreground: #f8fafc;
+}
+
+/* 關鍵：強制讓地圖容器填滿父層 */
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  background: #0b1220 !important;
+}
+
+/* 優化捲軸樣式 (右側面板使用) */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
