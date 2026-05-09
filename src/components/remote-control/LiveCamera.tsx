@@ -2,7 +2,7 @@
 import React, { useRef, useEffect } from 'react';
 
 interface Props {
-  stream: MediaStream | null; // 改為接收 WebRTC 串流
+  stream: MediaStream | null;
   isOffline: boolean;
 }
 
@@ -10,9 +10,12 @@ export const LiveCamera: React.FC<Props> = ({ stream, isOffline }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    // 當串流更新時，將其掛載到 video 標籤
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      // 嘗試手動觸發播放以應對部分瀏覽器的嚴格策略
+      videoRef.current.play().catch(err => {
+        console.warn("自動播放受限:", err);
+      });
     }
   }, [stream]);
 
@@ -28,6 +31,7 @@ export const LiveCamera: React.FC<Props> = ({ stream, isOffline }) => {
           ref={videoRef}
           autoPlay 
           playsInline 
+          muted  // 核心修正：必須靜音才能在大多數瀏覽器中成功自動播放
           className="w-full h-full object-contain"
         />
       )}
