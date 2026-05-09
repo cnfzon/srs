@@ -1,12 +1,13 @@
+// src/app/dashboard/map/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { Plus, Search, Navigation, Map as MapIcon, Loader2, Info, AlertCircle } from "lucide-react";
+import { Search, Navigation, Map as MapIcon, Loader2, Info, AlertCircle } from "lucide-react";
 import type { MapProps } from "@/components/MapComponent";
 import { useStations } from "@/hooks/useStations";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, GeoPoint } from "firebase/firestore";
+import { collection, addDoc, GeoPoint, serverTimestamp } from "firebase/firestore";
 
 // 動態載入地圖組件以避免 SSR 問題
 const MapComponent = dynamic<MapProps>(
@@ -22,7 +23,6 @@ const MapComponent = dynamic<MapProps>(
 );
 
 export default function ResourceMapPage() {
-  // 1. 狀態管理
   const { stations, loading } = useStations();
   const [selectedStationId, setSelectedStationId] = useState<string | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState("");
@@ -35,47 +35,46 @@ export default function ResourceMapPage() {
     }
   }, [stations, selectedStationId]);
 
-  // 2. 搜尋過濾邏輯
   const filteredStations = stations.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.description.toLowerCase().includes(searchQuery.toLowerCase())
+    (s.description && s.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const currentStation = stations.find(s => s.id === selectedStationId);
 
-  // 3. 處理新增站點（最詳細版本：包含 Firestore 寫入與 GeoPoint 處理）
+  // 修正：對接 MapComponent 傳出的欄位，並確保寫入 stations 集合
   const handleAddStation = async (newStation: { 
     name: string; 
-    desc: string; 
+    description: string; 
     lat: number; 
     lng: number; 
-    inventory: string 
+    status: string;
   }) => {
-    if (!newStation.name) {
-      alert("請輸入站點名稱");
-      return;
-    }
+    if (!newStation.name) return;
 
     try {
       setIsSubmitting(true);
       
-      // 將資料寫入 Firestore
+      // 確保欄位與 Firebase 控制台截圖完全一致
       const docRef = await addDoc(collection(db, "stations"), {
         name: newStation.name,
-        description: newStation.desc,
-        location: new GeoPoint(newStation.lat, newStation.lng),
-        status: "充足", // 預設狀態
+        description: newStation.description || "",
+        location: new GeoPoint(newStation.lat, newStation.lng), // 正確寫入 GeoPoint
+        status: newStation.status || "充足",
+        category: "資源站點",
         inventory: [
-          { name: "預設物資", quantity: parseInt(newStation.inventory) || 0, unit: "個" }
+          { name: "預設物資", quantity: 0, unit: "個" }
         ],
-        updatedAt: new Date(),
+        quantity: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
-      console.log("站點已成功部署，ID: ", docRef.id);
-      setSelectedStationId(docRef.id); // 自動選中新建立的站點
+      console.log("✅ 站點成功部署，ID: ", docRef.id);
+      setSelectedStationId(docRef.id); 
     } catch (error) {
-      console.error("新增站點時發生錯誤:", error);
-      alert("部署失敗，請檢查權限設定");
+      console.error("❌ 新增站點失敗:", error);
+      alert("部署失敗，請檢查權限設定或網路連線");
     } finally {
       setIsSubmitting(false);
     }
@@ -100,62 +99,46 @@ export default function ResourceMapPage() {
             </div>
           </div>
 
-          {/* 搜尋框 */}
           <div className="relative group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
             <input 
               type="text"
-              placeholder="搜尋站點或描述..."
+              placeholder="搜尋站點..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-black/20 border border-white/5 rounded-2xl py-3 pl-11 pr-4 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all"
             />
           </div>
 
-          {/* 站點清單 */}
           <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
             {loading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-24 animate-pulse bg-white/5 rounded-3xl" />
-              ))
-            ) : filteredStations.length > 0 ? (
-              filteredStations.map((station) => (
-                <button
-                  key={station.id}
-                  onClick={() => setSelectedStationId(station.id)}
-                  className={`w-full text-left p-4 rounded-3xl transition-all duration-300 border ${
-                    selectedStationId === station.id 
-                      ? "bg-blue-600 border-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.3)] scale-[1.02]" 
-                      : "bg-white/5 border-white/5 hover:bg-white/10"
-                  }`}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className={`font-bold transition-colors ${selectedStationId === station.id ? "text-white" : "text-slate-200"}`}>
-                      {station.name}
-                    </h4>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                      selectedStationId === station.id ? "bg-white/20 text-white" : "bg-blue-500/20 text-blue-400"
-                    }`}>
-                      {station.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Navigation className={`h-3 w-3 ${selectedStationId === station.id ? "text-blue-100" : "text-slate-500"}`} />
-                    <span className={`text-[10px] font-mono ${selectedStationId === station.id ? "text-blue-100" : "text-slate-400"}`}>
-                      {station.location.latitude.toFixed(4)}, {station.location.longitude.toFixed(4)}
-                    </span>
-                  </div>
-                </button>
-              ))
-            ) : (
-              <div className="text-center py-12">
-                <AlertCircle className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-                <p className="text-sm text-slate-500 font-medium">找不到匹配的站點</p>
-              </div>
-            )}
+              <div className="h-24 animate-pulse bg-white/5 rounded-3xl" />
+            ) : filteredStations.map((station) => (
+              <button
+                key={station.id}
+                onClick={() => setSelectedStationId(station.id)}
+                className={`w-full text-left p-4 rounded-3xl transition-all duration-300 border ${
+                  selectedStationId === station.id 
+                    ? "bg-blue-600 border-blue-400 shadow-lg" 
+                    : "bg-white/5 border-white/5 hover:bg-white/10"
+                }`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <h4 className="font-bold text-white">{station.name}</h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-white font-bold">
+                    {station.status}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Navigation className="h-3 w-3 text-slate-400" />
+                  <span className="text-[10px] font-mono text-slate-400">
+                    {station.location.latitude.toFixed(4)}, {station.location.longitude.toFixed(4)}
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
 
-          {/* 操作提示 */}
           <div className="bg-blue-500/5 border border-blue-500/10 p-4 rounded-2xl">
             <div className="flex items-center gap-2 mb-1">
               <Info className="h-4 w-4 text-blue-400" />
@@ -168,17 +151,15 @@ export default function ResourceMapPage() {
         </div>
       </aside>
 
-      {/* 右側：地圖顯示區域 */}
+      {/* 右側：地圖區域 */}
       <section className="xl:col-span-8 relative rounded-[2.5rem] border border-white/10 bg-slate-900/40 p-2 overflow-hidden backdrop-blur-xl shadow-2xl">
-        {/* 地圖標題懸浮卡 */}
-        <div className="absolute top-6 left-6 z-10 flex flex-col gap-2">
+        <div className="absolute top-6 left-6 z-10">
           <div className="bg-slate-900/80 backdrop-blur-md border border-white/10 p-3 rounded-2xl shadow-xl">
             <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Current Focus</p>
             <h2 className="text-lg font-black text-white">{currentStation?.name || "未選取站點"}</h2>
           </div>
         </div>
 
-        {/* 地圖組件本體 */}
         <div className="h-full w-full rounded-[2rem] overflow-hidden">
           <MapComponent 
             stations={stations.map(s => ({
@@ -187,7 +168,7 @@ export default function ResourceMapPage() {
               lat: s.location.latitude,
               lng: s.location.longitude,
               status: s.status,
-              desc: s.description
+              description: s.description // 統一命名
             }))}
             selectedId={selectedStationId}
             onMarkerClick={(id) => setSelectedStationId(id)}
@@ -195,7 +176,6 @@ export default function ResourceMapPage() {
           />
         </div>
         
-        {/* 提交中遮罩 */}
         {isSubmitting && (
           <div className="absolute inset-0 z-[1000] bg-black/40 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-slate-900 border border-white/10 p-6 rounded-3xl flex flex-col items-center gap-4 shadow-2xl">

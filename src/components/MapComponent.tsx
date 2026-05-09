@@ -18,32 +18,30 @@ export interface MapProps {
   selectedId?: string;
   onAddStation: (newStation: any) => void;
   onMarkerClick: (id: string) => void;
-  onMapClick?: (lat: number, lng: number) => void;
 }
 
 function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }) {
   const [clickedPos, setClickedPos] = useState<L.LatLng | null>(null);
-  // 根據 Firestore 結構定義初始狀態
   const [formData, setFormData] = useState({ 
     name: "", 
     description: "", 
-    status: "充足" // 預設狀態符合你目前的數據邏輯
+    status: "充足" 
   });
 
   useMapEvents({
-    click(e) {
-      setClickedPos(e.latlng);
-    },
+    click(e) { setClickedPos(e.latlng); },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (clickedPos) {
+      // 發送結構化的資料給 page.tsx
       onAddStation({
-        ...formData,
+        name: formData.name,
+        description: formData.description,
+        status: formData.status,
         lat: clickedPos.lat,
         lng: clickedPos.lng,
-        inventory: [] // 初始建立時給予空陣列
       });
       setClickedPos(null);
       setFormData({ name: "", description: "", status: "充足" });
@@ -53,13 +51,11 @@ function MapEvents({ onAddStation }: { onAddStation: (newStation: any) => void }
   return clickedPos ? (
     <Popup 
       position={clickedPos} 
-      eventHandlers={{
-        remove: () => setClickedPos(null)
-      }}
+      eventHandlers={{ remove: () => setClickedPos(null) }}
     >
       <div className="p-3 min-w-[220px] bg-slate-900 text-white rounded-lg">
         <h3 className="font-bold text-blue-400 mb-3 text-sm flex items-center gap-2">
-          新增部署站點
+          📍 新增部署站點
         </h3>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <div>
@@ -126,28 +122,18 @@ export default function MapComponent({ stations, selectedId, onAddStation, onMar
 
   return (
     <div className="h-full w-full">
-      <MapContainer 
-        center={[25.0433, 121.5348]} 
-        zoom={15} 
-        className="h-full w-full" 
-        zoomControl={false}
-      >
+      <MapContainer center={[25.0433, 121.5348]} zoom={15} className="h-full w-full" zoomControl={false}>
         <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
         <MapEvents onAddStation={onAddStation} />
         <MapAutoCenter stations={stations} selectedId={selectedId} />
-        
         {stations.map((station) => (
           <Marker
             key={station.id}
             position={[station.lat, station.lng]}
             icon={MARKER_ICON}
-            eventHandlers={{
-              click: () => onMarkerClick(station.id),
-            }}
+            eventHandlers={{ click: () => onMarkerClick(station.id) }}
           >
-            <Popup>
-              <div className="text-sm font-bold text-slate-800">{station.name}</div>
-            </Popup>
+            <Popup><div className="text-sm font-bold text-slate-800">{station.name}</div></Popup>
           </Marker>
         ))}
       </MapContainer>
