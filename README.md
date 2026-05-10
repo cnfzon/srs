@@ -1,4 +1,4 @@
-# ResilienceOps — 智慧災難物資管理系統
+# ResilienceOps — 智選循環回收站
 
 Next.js 14 + TypeScript + Tailwind CSS + Firebase (Firestore)
 
