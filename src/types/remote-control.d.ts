@@ -1,24 +1,40 @@
-// src/types/remote-control.ts
+// src/types/remote-control.d.ts
 
-// 對應 Python 傳出的原始 JSON 結構
 export interface RawSensorData {
   timestamp: string;
-  coordinates: { x: number; y: number; z: number };
-  quantity: number;
+  camera_coordinates?: { x: number; y: number };
+  target_coordinates?: { x: number; y: number; z: number };
+  total_quantity?: number;
+  target_confidence?: number;
   status: string;
 }
 
 export interface TelemetryData {
-  status: string;      // 辨識狀態 (如: detection)
-  coord: string;       // 格式化後的座標字串 "(x, y, z)"
-  count: number;       // 對應 quantity
-  conf: string;        // 置信度 (Python 目前沒傳，先預設為 "N/A")
-  lastUpdate: string;  // 時間戳記
+  status: string;
+  coord: string;
+  count: number;
+  conf: string;
+  lastUpdate: string;
 }
 
+// 修正：對應腳本實際需要的參數 (移動距離)
 export interface ControlCommands {
-  targetX: number;
-  targetY: number;
+  moveDist: number; 
   threshold: number;
   eStop: boolean;
+}
+
+// 擴充：加入腳本中所有的按鈕動作
+export type RobotAction = 
+  | 'DETECT' | 'STANDBY' | 'TAKE' 
+  | 'ROTATE_FRONT' | 'ROTATE_BACK' 
+  | 'GRAB' | 'RELEASE' 
+  | 'MOVE' | 'AUTO' | 'WORK' | 'RESET';
+
+export interface ActionPayload {
+  action: RobotAction;
+  params: {
+    dist?: number; // 傳遞移動距離參數
+  };
+  ts: number;
 }
